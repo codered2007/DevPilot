@@ -1,0 +1,48 @@
+const API_URL = "http://127.0.0.1:8000";
+
+export async function importRepository(url: string) {
+  const response = await fetch(`${API_URL}/repositories/import`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ url }),
+  });
+
+  if (!response.ok) {
+    throw new Error("Import failed");
+  }
+
+  return response.json();
+}
+
+export async function getRepositoryTree(
+  owner: string,
+  repo: string
+) {
+  const response = await fetch(
+    `${API_URL}/repositories/tree?owner=${owner}&repo=${repo}`
+  );
+
+  if (!response.ok) {
+    throw new Error("Failed to fetch repository tree");
+  }
+
+  return response.json();
+}
+
+export async function getFileContent(
+  owner: string,
+  repo: string,
+  path: string
+) {
+  const response = await fetch(
+    `http://127.0.0.1:8000/repositories/file?owner=${owner}&repo=${repo}&path=${encodeURIComponent(path)}`
+  );
+
+  if (!response.ok) {
+    throw new Error("Failed to fetch file");
+  }
+
+  return response.json();
+}
