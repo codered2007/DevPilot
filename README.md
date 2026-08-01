@@ -1,5 +1,7 @@
 # React + TypeScript + Vite
+# DevPilot
 
+An AI-powered developer workspace that helps you import GitHub repositories, explore code, understand projects, and collaborate with AI.
 This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
 
 Currently, two official plugins are available:
