@@ -6,6 +6,11 @@ from app.services.github_service import (
     get_repository_tree,
     get_file_content,
 )
+from app.services.github_service import (
+    get_repository,
+    get_repository_tree,
+    search_repository,
+)
 
 router = APIRouter(
     prefix="/repositories",
@@ -92,3 +97,15 @@ async def repository_file(
         )
 
     return file
+
+@router.get("/search")
+async def repository_search(
+    owner: str,
+    repo: str,
+    query: str,
+):
+    return await search_repository(
+        owner,
+        repo,
+        query,
+    )
