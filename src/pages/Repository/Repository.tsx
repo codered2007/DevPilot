@@ -1,8 +1,21 @@
 import { useEffect, useState } from "react";
+import { Base64 } from "js-base64";
+
+import RepositoryHeader from "../../components/repository/RepositoryHeader";
+import RepositoryStats from "../../components/repository/RepositoryStats";
+import FileTree from "../../components/repository/FileTree";
 import CodeViewer from "../../components/repository/CodeViewer";
+import AIChatPanel from "../../components/repository/AIChatPanel";
+
 import { useRepository } from "../../context/RepositoryContext";
-import { getRepositoryTree } from "../../services/api";
-import FileExplorer from "../../components/repository/FileExplorer";
+
+import {
+  getRepositoryTree,
+  getFileContent,
+} from "../../services/api";
+
+import { buildFileTree } from "../../utils/buildFileTree";
+import { getRepositoryStats } from "../../utils/repositoryStats";
 
 interface FileItem {
   path: string;
@@ -16,8 +29,11 @@ function Repository() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
-  const [selectedFile, setSelectedFile] =
-  useState("");
+  const [selectedFilePath, setSelectedFilePath] = useState("");
+  const [fileContent, setFileContent] = useState("");
+
+  const tree = buildFileTree(files);
+  const stats = getRepositoryStats(files);
 
   useEffect(() => {
     async function loadTree() {
@@ -27,9 +43,9 @@ function Repository() {
         setLoading(true);
 
         const tree = await getRepositoryTree(
-  repository.owner,
-  repository.repo
-);
+          repository.owner,
+          repository.repo
+        );
 
         setFiles(tree);
       } catch (err) {
@@ -42,6 +58,27 @@ function Repository() {
 
     loadTree();
   }, [repository]);
+
+  async function handleSelectFile(path: string) {
+    if (!repository) return;
+
+    try {
+      setSelectedFilePath(path);
+
+      const file = await getFileContent(
+        repository.owner,
+        repository.repo,
+        path
+      );
+
+      const decoded = Base64.decode(file.content);
+
+      setFileContent(decoded);
+    } catch (err) {
+      console.error(err);
+      setFileContent("Unable to load file.");
+    }
+  }
 
   if (!repository) {
     return (
@@ -59,33 +96,7 @@ function Repository() {
 
   return (
     <div className="space-y-8">
-      <div className="rounded-3xl border border-zinc-800 bg-zinc-900 p-8">
-        <h1 className="text-4xl font-bold">
-          {repository.name}
-        </h1>
-
-        <p className="mt-3 text-zinc-400">
-          {repository.description}
-        </p>
-
-        <div className="mt-8 flex flex-wrap gap-6 text-sm">
-          <div className="rounded-full bg-zinc-800 px-4 py-2">
-            ⭐ {repository.stars}
-          </div>
-
-          <div className="rounded-full bg-zinc-800 px-4 py-2">
-            🍴 {repository.forks}
-          </div>
-
-          <div className="rounded-full bg-zinc-800 px-4 py-2">
-            🌿 {repository.branch}
-          </div>
-
-          <div className="rounded-full bg-zinc-800 px-4 py-2">
-            💻 {repository.language}
-          </div>
-        </div>
-      </div>
+      <RepositoryHeader repository={repository} />
 
       {loading && (
         <div className="rounded-3xl border border-zinc-800 bg-zinc-900 p-8">
@@ -100,18 +111,31 @@ function Repository() {
       )}
 
       {!loading && !error && (
-        <div className="grid gap-6 xl:grid-cols-12">
-  <div className="xl:col-span-4">
-    <FileExplorer
-      files={files}
-      onSelectFile={setSelectedFile}
-    />
-  </div>
+        <>
+          <div className="grid gap-6 xl:grid-cols-12">
+            <div className="xl:col-span-3">
+              <FileTree
+                nodes={tree}
+                onSelectFile={handleSelectFile}
+              />
+            </div>
 
-  <div className="xl:col-span-8">
-    <CodeViewer file={selectedFile} />
-  </div>
-</div>
+            <div className="xl:col-span-6">
+              <CodeViewer
+                file={fileContent}
+                fileName={selectedFilePath}
+              />
+            </div>
+
+            <div className="xl:col-span-3">
+              <AIChatPanel
+                code={fileContent}
+              />
+            </div>
+          </div>
+
+          <RepositoryStats stats={stats} />
+        </>
       )}
     </div>
   );
