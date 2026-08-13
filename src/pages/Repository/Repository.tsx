@@ -129,7 +129,8 @@ function Repository() {
 
             <div className="xl:col-span-3">
               <AIChatPanel
-                code={fileContent}
+                owner={repository.owner}
+                repo={repository.repo}
               />
             </div>
           </div>

@@ -1,4 +1,5 @@
 import os
+from base64 import b64decode
 
 from dotenv import load_dotenv
 from google import genai
@@ -35,16 +36,34 @@ async def ask_ai(
             match["path"],
         )
 
-        if file:
-            context += (
-                f"\n\nFILE: {match['path']}\n\n"
-                f"{file.get('content', '')[:12000]}"
+        if not file:
+            continue
+
+        raw_content = file.get("content", "")
+
+        try:
+            decoded_content = b64decode(
+                raw_content
+            ).decode(
+                "utf-8",
+                errors="ignore",
             )
+        except Exception:
+            decoded_content = raw_content
+
+        context += (
+            f"\n\nFILE: {match['path']}\n\n"
+            f"{decoded_content[:12000]}"
+        )
 
     prompt = f"""
 You are DevPilot, an AI software engineer.
 
-Use the repository context below to answer.
+Use the repository context below to answer the user's question.
+
+Give a clear, practical answer based on the available repository code.
+If the repository context does not contain enough information to answer,
+say so instead of inventing details.
 
 Repository Context:
 
@@ -56,7 +75,7 @@ Question:
 """
 
     response = client.models.generate_content(
-        model="gemini-flash-latest",
+        model="gemini-3.5-flash",
         contents=prompt,
     )
 

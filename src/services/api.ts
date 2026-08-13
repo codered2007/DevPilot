@@ -1,13 +1,16 @@
 const API_URL = "http://127.0.0.1:8000";
 
 export async function importRepository(url: string) {
-  const response = await fetch(`${API_URL}/repositories/import`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({ url }),
-  });
+  const response = await fetch(
+    `${API_URL}/repositories/import`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ url }),
+    }
+  );
 
   if (!response.ok) {
     throw new Error("Import failed");
@@ -37,11 +40,53 @@ export async function getFileContent(
   path: string
 ) {
   const response = await fetch(
-    `http://127.0.0.1:8000/repositories/file?owner=${owner}&repo=${repo}&path=${encodeURIComponent(path)}`
+    `${API_URL}/repositories/file?owner=${owner}&repo=${repo}&path=${encodeURIComponent(path)}`
   );
 
   if (!response.ok) {
     throw new Error("Failed to fetch file");
+  }
+
+  return response.json();
+}
+
+export async function chatWithAI(
+  owner: string,
+  repo: string,
+  message: string
+) {
+  const response = await fetch(
+    `${API_URL}/chat/`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        owner,
+        repo,
+        message,
+      }),
+    }
+  );
+
+  if (!response.ok) {
+    throw new Error("AI request failed");
+  }
+
+  return response.json();
+}
+
+export async function getRepositorySummary(
+  owner: string,
+  repo: string
+) {
+  const response = await fetch(
+    `${API_URL}/summary?owner=${owner}&repo=${repo}`
+  );
+
+  if (!response.ok) {
+    throw new Error("Failed to analyze repository");
   }
 
   return response.json();
