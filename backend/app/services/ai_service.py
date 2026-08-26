@@ -27,9 +27,9 @@ async def ask_ai(
         message,
     )
 
-    context = ""
+    context_parts = []
 
-    for match in matches[:5]:
+    for match in matches[:8]:
         file = await get_file_content(
             owner,
             repo,
@@ -51,27 +51,44 @@ async def ask_ai(
         except Exception:
             decoded_content = raw_content
 
-        context += (
-            f"\n\nFILE: {match['path']}\n\n"
-            f"{decoded_content[:12000]}"
+        context_parts.append(
+            f"FILE: {match['path']}\n\n"
+            f"{decoded_content[:10000]}"
+        )
+
+    context = "\n\n---\n\n".join(context_parts)
+
+    if not context:
+        context = (
+            "No relevant repository files could be retrieved."
         )
 
     prompt = f"""
 You are DevPilot, an AI software engineer.
 
-Use the repository context below to answer the user's question.
+You are analyzing the GitHub repository:
+{owner}/{repo}
 
-Give a clear, practical answer based on the available repository code.
-If the repository context does not contain enough information to answer,
-say so instead of inventing details.
+Use ONLY the repository context provided below when making
+claims about the repository's implementation.
 
 Repository Context:
 
 {context}
 
-Question:
+User Question:
 
 {message}
+
+Instructions:
+
+- Give a clear and practical answer.
+- Reference specific files when useful.
+- Explain your reasoning from the available code.
+- If the available repository context is insufficient,
+  explicitly say what information is missing.
+- Do not invent files, features, technologies, or behavior
+  that are not supported by the repository context.
 """
 
     response = client.models.generate_content(

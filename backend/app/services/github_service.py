@@ -40,6 +40,25 @@ async def search_repository(
 
         path = item.get("path", "")
 
+        # Skip files that are unlikely to contain useful source code.
+        if path.lower().endswith(
+            (
+                ".png",
+                ".jpg",
+                ".jpeg",
+                ".gif",
+                ".svg",
+                ".ico",
+                ".lock",
+                ".map",
+                ".woff",
+                ".woff2",
+                ".ttf",
+                ".eot",
+            )
+        ):
+            continue
+
         files.append(
             {
                 "path": path,
@@ -61,7 +80,7 @@ async def search_repository(
 
         for word in query_words:
             if word in path:
-                score += 1
+                score += 3
 
         scored_files.append(
             (
@@ -75,33 +94,81 @@ async def search_repository(
         reverse=True,
     )
 
+    # Take a small candidate pool for content-based scoring.
+    candidates = [
+        file
+        for score, file in scored_files[:20]
+    ]
+
+    # If filename matching produced too few candidates,
+    # include some additional source files.
+    if len(candidates) < 10:
+        for file in files:
+            if file not in candidates:
+                candidates.append(file)
+
+            if len(candidates) >= 20:
+                break
+
+    content_scored_files = []
+
+    for file in candidates:
+        file_data = await get_file_content(
+            owner,
+            repo,
+            file["path"],
+        )
+
+        score = 0
+
+        if file_data:
+            raw_content = file_data.get(
+                "content",
+                "",
+            )
+
+            for word in query_words:
+                if word in raw_content.lower():
+                    score += 1
+
+        content_scored_files.append(
+            (
+                score,
+                file,
+            )
+        )
+
+    content_scored_files.sort(
+        key=lambda item: item[0],
+        reverse=True,
+    )
+
     results = [
         file
-        for score, file in scored_files
+        for score, file in content_scored_files
         if score > 0
     ]
 
-    if not results:
-        priority_files = [
-            "README.md",
-            "README",
-            "package.json",
-            "pyproject.toml",
-            "requirements.txt",
-            "setup.py",
-            "Cargo.toml",
-            "go.mod",
-        ]
+    priority_files = [
+        "README.md",
+        "README",
+        "package.json",
+        "requirements.txt",
+        "pyproject.toml",
+        "setup.py",
+        "Cargo.toml",
+        "go.mod",
+    ]
 
-        for priority in priority_files:
-            for file in files:
-                if file["path"].lower() == priority.lower():
+    for priority in priority_files:
+        for file in files:
+            if file["path"].lower() == priority.lower():
+                if file not in results:
                     results.append(file)
 
-                    if len(results) >= 5:
-                        return results
+                break
 
-    return results[:5]
+    return results[:8]
 
 
 async def get_repository(
