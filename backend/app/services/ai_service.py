@@ -28,6 +28,8 @@ async def ask_ai(
     )
 
     context_parts = []
+    context_length = 0
+    MAX_CONTEXT_LENGTH = 40000
 
     for match in matches[:8]:
         file = await get_file_content(
@@ -51,16 +53,35 @@ async def ask_ai(
         except Exception:
             decoded_content = raw_content
 
-        context_parts.append(
-            f"FILE: {match['path']}\n\n"
-            f"{decoded_content[:10000]}"
+        if not decoded_content.strip():
+            continue
+
+        remaining = (
+            MAX_CONTEXT_LENGTH - context_length
         )
 
-    context = "\n\n---\n\n".join(context_parts)
+        if remaining <= 0:
+            break
+
+        file_content = decoded_content[
+            :min(10000, remaining)
+        ]
+
+        context_parts.append(
+            f"FILE: {match['path']}\n\n"
+            f"{file_content}"
+        )
+
+        context_length += len(file_content)
+
+    context = "\n\n---\n\n".join(
+        context_parts
+    )
 
     if not context:
         context = (
-            "No relevant repository files could be retrieved."
+            "No relevant repository files "
+            "could be retrieved."
         )
 
     prompt = f"""
