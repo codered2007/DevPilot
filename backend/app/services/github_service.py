@@ -152,7 +152,7 @@ def get_path_score(
 
     score = 0
 
-    # Exact query phrase in the complete path.
+    # Exact query phrase matches in the path.
     if query_text and query_text in normalized_path:
         score += 15
 
@@ -217,22 +217,27 @@ async def score_file_content(
 
     score = filename_score
 
-    if file_data:
-        raw_content = file_data.get(
-            "content",
-            "",
-        )
+    if not file_data:
+        return score, file
 
-        content = raw_content.lower()
+    raw_content = file_data.get(
+        "content",
+        "",
+    )
 
-        # Exact phrase matches are stronger signals.
-        if query_text and query_text in content:
-            score += 8
+    content = raw_content.lower()
 
-        # Individual technical terms in the content.
-        for word in query_words:
-            if word in content:
-                score += 1
+    # Reward an exact phrase match.
+    if query_text and query_text in content:
+        score += 10
+
+    # Score individual query terms based on frequency.
+    for word in query_words:
+        occurrences = content.count(word)
+
+        # Cap the frequency contribution so a very common
+        # word cannot dominate the ranking.
+        score += min(occurrences, 10)
 
     return score, file
 
