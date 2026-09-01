@@ -33,11 +33,14 @@ export function buildFileTree(
       );
 
       if (!node) {
+        const isFolder =
+          !isLast || file.type === "tree";
+
         node = {
           name: part,
           path: currentPath,
-          type: isLast ? "file" : "folder",
-          children: [],
+          type: isFolder ? "folder" : "file",
+          ...(isFolder ? { children: [] } : {}),
         };
 
         current.push(node);

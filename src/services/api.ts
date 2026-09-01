@@ -91,3 +91,32 @@ export async function getRepositorySummary(
 
   return response.json();
 }
+
+export async function explainCode(
+  owner: string,
+  repo: string,
+  filePath: string,
+  code: string
+) {
+  const response = await fetch(
+    `${API_URL}/explain/`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        owner,
+        repo,
+        file_path: filePath,
+        code,
+      }),
+    }
+  );
+
+  if (!response.ok) {
+    throw new Error("Code explanation failed");
+  }
+
+  return response.json();
+}

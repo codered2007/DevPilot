@@ -41,15 +41,18 @@ function Repository() {
 
       try {
         setLoading(true);
+        setError("");
 
         const tree = await getRepositoryTree(
           repository.owner,
           repository.repo
         );
 
+        console.log("Repository tree:", tree);
+
         setFiles(tree);
       } catch (err) {
-        console.error(err);
+        console.error("Failed to load repository tree:", err);
         setError("Failed to load repository tree.");
       } finally {
         setLoading(false);
@@ -60,10 +63,21 @@ function Repository() {
   }, [repository]);
 
   async function handleSelectFile(path: string) {
-    if (!repository) return;
+    console.log("Selected file path:", path);
+
+    if (!path) {
+      console.error("No file path was provided.");
+      return;
+    }
+
+    if (!repository) {
+      console.error("No repository is currently selected.");
+      return;
+    }
 
     try {
       setSelectedFilePath(path);
+      setFileContent("");
 
       const file = await getFileContent(
         repository.owner,
@@ -71,11 +85,15 @@ function Repository() {
         path
       );
 
+      if (!file || !file.content) {
+        throw new Error("File content was not returned.");
+      }
+
       const decoded = Base64.decode(file.content);
 
       setFileContent(decoded);
     } catch (err) {
-      console.error(err);
+      console.error("Failed to load file:", err);
       setFileContent("Unable to load file.");
     }
   }
@@ -122,6 +140,8 @@ function Repository() {
 
             <div className="xl:col-span-6">
               <CodeViewer
+                owner={repository.owner}
+                repo={repository.repo}
                 file={fileContent}
                 fileName={selectedFilePath}
               />
