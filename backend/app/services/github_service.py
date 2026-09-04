@@ -11,10 +11,6 @@ GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
 
 print("GitHub token loaded:", bool(GITHUB_TOKEN))
 
-if GITHUB_TOKEN:
-    print("Token prefix:", GITHUB_TOKEN[:4])
-    print("Token length:", len(GITHUB_TOKEN))
-
 HEADERS = {
     "Accept": "application/vnd.github+json",
     "User-Agent": "DevPilot",
@@ -22,6 +18,12 @@ HEADERS = {
 
 if GITHUB_TOKEN:
     HEADERS["Authorization"] = f"Bearer {GITHUB_TOKEN}"
+
+
+TIMEOUT = httpx.Timeout(
+    10.0,
+    connect=5.0,
+)
 
 
 STOP_WORDS = {
@@ -161,7 +163,8 @@ def get_path_score(
         if word in normalized_path:
             score += 3
 
-    # Source-code files are more useful for implementation questions.
+    # Source-code files are more useful
+    # for implementation questions.
     _, extension = os.path.splitext(normalized_path)
 
     if extension in SOURCE_EXTENSIONS:
@@ -175,7 +178,8 @@ def get_path_score(
         if directory in NON_SOURCE_DIRECTORIES:
             score -= 4
 
-    # Files with implementation-oriented names get a bonus.
+    # Files with implementation-oriented names
+    # get a bonus.
     filename = path_parts[-1]
 
     implementation_terms = {
@@ -235,8 +239,8 @@ async def score_file_content(
     for word in query_words:
         occurrences = content.count(word)
 
-        # Cap the frequency contribution so a very common
-        # word cannot dominate the ranking.
+        # Cap the frequency contribution so a
+        # common word cannot dominate the ranking.
         score += min(occurrences, 10)
 
     return score, file
@@ -263,7 +267,8 @@ async def search_repository(
 
         path = item.get("path", "")
 
-        # Skip files that are unlikely to contain useful source code.
+        # Skip files that are unlikely to contain
+        # useful source code.
         if path.lower().endswith(
             (
                 ".png",
@@ -408,26 +413,35 @@ async def get_repository(
     owner: str,
     repo: str,
 ):
-    url = f"https://api.github.com/repos/{owner}/{repo}"
+    url = (
+        f"https://api.github.com/repos/"
+        f"{owner}/{repo}"
+    )
 
-    async with httpx.AsyncClient(
-        follow_redirects=True
-    ) as client:
-        response = await client.get(
-            url,
-            headers=HEADERS,
-        )
+    try:
+        async with httpx.AsyncClient(
+            follow_redirects=True,
+            timeout=TIMEOUT,
+        ) as client:
+            response = await client.get(
+                url,
+                headers=HEADERS,
+            )
 
-    print("=" * 50)
-    print("GitHub URL:", url)
-    print("Status:", response.status_code)
-    print("=" * 50)
+        print("=" * 50)
+        print("GitHub URL:", url)
+        print("Status:", response.status_code)
+        print("=" * 50)
 
-    if response.status_code != 200:
-        print(response.text)
+        if response.status_code != 200:
+            print(response.text)
+            return None
+
+        return response.json()
+
+    except httpx.RequestError as error:
+        print("GitHub repository request failed:", error)
         return None
-
-    return response.json()
 
 
 async def get_repository_tree(
@@ -436,27 +450,34 @@ async def get_repository_tree(
 ):
     url = (
         f"https://api.github.com/repos/"
-        f"{owner}/{repo}/git/trees/HEAD?recursive=1"
+        f"{owner}/{repo}/git/trees/HEAD"
+        f"?recursive=1"
     )
 
-    async with httpx.AsyncClient(
-        follow_redirects=True
-    ) as client:
-        response = await client.get(
-            url,
-            headers=HEADERS,
-        )
+    try:
+        async with httpx.AsyncClient(
+            follow_redirects=True,
+            timeout=TIMEOUT,
+        ) as client:
+            response = await client.get(
+                url,
+                headers=HEADERS,
+            )
 
-    print("=" * 50)
-    print("Tree URL:", url)
-    print("Status:", response.status_code)
-    print("=" * 50)
+        print("=" * 50)
+        print("Tree URL:", url)
+        print("Status:", response.status_code)
+        print("=" * 50)
 
-    if response.status_code != 200:
-        print(response.text)
+        if response.status_code != 200:
+            print(response.text)
+            return None
+
+        return response.json()
+
+    except httpx.RequestError as error:
+        print("GitHub tree request failed:", error)
         return None
-
-    return response.json()
 
 
 async def get_file_content(
@@ -469,16 +490,28 @@ async def get_file_content(
         f"{owner}/{repo}/contents/{path}"
     )
 
-    async with httpx.AsyncClient(
-        follow_redirects=True
-    ) as client:
-        response = await client.get(
-            url,
-            headers=HEADERS,
+    try:
+        async with httpx.AsyncClient(
+            follow_redirects=True,
+            timeout=TIMEOUT,
+        ) as client:
+            response = await client.get(
+                url,
+                headers=HEADERS,
+            )
+
+        if response.status_code != 200:
+            print(
+                f"GitHub file request failed "
+                f"({response.status_code}): {path}"
+            )
+            return None
+
+        return response.json()
+
+    except httpx.RequestError as error:
+        print(
+            f"GitHub file request failed: "
+            f"{path} — {error}"
         )
-
-    if response.status_code != 200:
-        print(response.text)
         return None
-
-    return response.json()
