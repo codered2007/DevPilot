@@ -5,8 +5,7 @@ from dotenv import load_dotenv
 from google import genai
 
 from app.services.github_service import (
-    search_repository,
-    get_file_content,
+    search_repository_with_content,
 )
 
 load_dotenv()
@@ -21,7 +20,7 @@ async def ask_ai(
     repo: str,
     message: str,
 ):
-    matches = await search_repository(
+    matches = await search_repository_with_content(
         owner,
         repo,
         message,
@@ -29,19 +28,15 @@ async def ask_ai(
 
     context_parts = []
     context_length = 0
+
     MAX_CONTEXT_LENGTH = 40000
+    MAX_FILE_LENGTH = 10000
 
     for match in matches[:8]:
-        file = await get_file_content(
-            owner,
-            repo,
-            match["path"],
+        raw_content = match.get(
+            "content",
+            "",
         )
-
-        if not file:
-            continue
-
-        raw_content = file.get("content", "")
 
         try:
             decoded_content = b64decode(
@@ -64,7 +59,10 @@ async def ask_ai(
             break
 
         file_content = decoded_content[
-            :min(10000, remaining)
+            :min(
+                MAX_FILE_LENGTH,
+                remaining,
+            )
         ]
 
         context_parts.append(

@@ -409,6 +409,184 @@ async def search_repository(
     return results[:8]
 
 
+async def search_repository_with_content(
+    owner: str,
+    repo: str,
+    query: str,
+):
+    tree = await get_repository_tree(
+        owner,
+        repo,
+    )
+
+    if tree is None:
+        return []
+
+    files = []
+
+    for item in tree.get("tree", []):
+        if item.get("type") != "blob":
+            continue
+
+        path = item.get("path", "")
+
+        # Skip files that are unlikely to contain
+        # useful source code.
+        if path.lower().endswith(
+            (
+                ".png",
+                ".jpg",
+                ".jpeg",
+                ".gif",
+                ".svg",
+                ".ico",
+                ".lock",
+                ".map",
+                ".woff",
+                ".woff2",
+                ".ttf",
+                ".eot",
+            )
+        ):
+            continue
+
+        files.append(
+            {
+                "path": path,
+            }
+        )
+
+    query_words = normalize_query(query)
+
+    if not query_words:
+        query_words = [
+            word.lower()
+            for word in query.split()
+            if len(word) > 2
+        ]
+
+    query_text = " ".join(query_words)
+
+    scored_files = []
+
+    for file in files:
+        score = get_path_score(
+            file["path"],
+            query_words,
+            query_text,
+        )
+
+        scored_files.append(
+            (
+                score,
+                file,
+            )
+        )
+
+    scored_files.sort(
+        key=lambda item: item[0],
+        reverse=True,
+    )
+
+    # Take the best path-based candidates.
+    candidates = [
+        file
+        for score, file in scored_files[:20]
+    ]
+
+    # If there are too few candidates, add more files.
+    if len(candidates) < 10:
+        for file in files:
+            if file not in candidates:
+                candidates.append(file)
+
+            if len(candidates) >= 20:
+                break
+
+    async def retrieve_file(file):
+        file_data = await get_file_content(
+            owner,
+            repo,
+            file["path"],
+        )
+
+        if not file_data:
+            return None
+
+        raw_content = file_data.get(
+            "content",
+            "",
+        )
+
+        if not raw_content:
+            return None
+
+        return {
+            "path": file["path"],
+            "content": raw_content,
+        }
+
+    # Retrieve candidate contents concurrently.
+    retrieved_files = await asyncio.gather(
+        *[
+            retrieve_file(file)
+            for file in candidates
+        ]
+    )
+
+    scored_results = []
+
+    for file in retrieved_files:
+        if not file:
+            continue
+
+        content = file["content"].lower()
+
+        score = get_path_score(
+            file["path"],
+            query_words,
+            query_text,
+        )
+
+        # Reward an exact phrase match.
+        if query_text and query_text in content:
+            score += 10
+
+        # Score individual query terms based on frequency.
+        for word in query_words:
+            occurrences = content.count(word)
+
+            # Cap the frequency contribution.
+            score += min(occurrences, 10)
+
+        scored_results.append(
+            (
+                score,
+                file,
+            )
+        )
+
+    scored_results.sort(
+        key=lambda item: item[0],
+        reverse=True,
+    )
+
+    results = [
+        file
+        for score, file in scored_results
+        if score > 0
+    ]
+
+    print("AI search query:", query)
+    print("Normalized query:", query_words)
+    print(
+        "AI search results:",
+        [file["path"] for file in results[:8]],
+    )
+
+    return results[:8]
+
+
 async def get_repository(
     owner: str,
     repo: str,
@@ -440,7 +618,10 @@ async def get_repository(
         return response.json()
 
     except httpx.RequestError as error:
-        print("GitHub repository request failed:", error)
+        print(
+            "GitHub repository request failed:",
+            error,
+        )
         return None
 
 
@@ -476,7 +657,10 @@ async def get_repository_tree(
         return response.json()
 
     except httpx.RequestError as error:
-        print("GitHub tree request failed:", error)
+        print(
+            "GitHub tree request failed:",
+            error,
+        )
         return None
 
 
