@@ -151,6 +151,7 @@ function Repository() {
               <AIChatPanel
                 owner={repository.owner}
                 repo={repository.repo}
+                onSelectFile={handleSelectFile}
               />
             </div>
           </div>

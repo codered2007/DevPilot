@@ -6,11 +6,13 @@ import { chatWithAI } from "../../services/api";
 interface AIChatPanelProps {
   owner: string;
   repo: string;
+  onSelectFile: (path: string) => void;
 }
 
 interface Message {
   role: "user" | "assistant";
   content: string;
+  sources?: string[];
 }
 
 const QUICK_ACTIONS = [
@@ -20,7 +22,8 @@ const QUICK_ACTIONS = [
   },
   {
     label: "🐞 Find Bugs",
-    prompt: "Find bugs, edge cases and potential issues in this repository.",
+    prompt:
+      "Find bugs, edge cases and potential issues in this repository.",
   },
   {
     label: "⚡ Improve",
@@ -42,6 +45,7 @@ const QUICK_ACTIONS = [
 function AIChatPanel({
   owner,
   repo,
+  onSelectFile,
 }: AIChatPanelProps) {
   const [messages, setMessages] = useState<Message[]>([
     {
@@ -92,6 +96,7 @@ function AIChatPanel({
         {
           role: "assistant",
           content: result.response,
+          sources: result.sources,
         },
       ]);
     } catch (error) {
@@ -128,6 +133,8 @@ function AIChatPanel({
             key={index}
             role={message.role}
             content={message.content}
+            sources={message.sources}
+            onSelectFile={onSelectFile}
           />
         ))}
 

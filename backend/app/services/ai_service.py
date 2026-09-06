@@ -28,6 +28,7 @@ async def ask_ai(
 
     context_parts = []
     context_length = 0
+    source_files = []
 
     MAX_CONTEXT_LENGTH = 40000
     MAX_FILE_LENGTH = 10000
@@ -68,6 +69,10 @@ async def ask_ai(
         context_parts.append(
             f"FILE: {match['path']}\n\n"
             f"{file_content}"
+        )
+
+        source_files.append(
+            match["path"]
         )
 
         context_length += len(file_content)
@@ -115,4 +120,7 @@ Instructions:
         contents=prompt,
     )
 
-    return response.text
+    return {
+        "response": response.text,
+        "sources": source_files,
+    }

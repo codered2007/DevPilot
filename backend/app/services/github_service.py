@@ -696,6 +696,7 @@ async def get_file_content(
     except httpx.RequestError as error:
         print(
             f"GitHub file request failed: "
-            f"{path} — {error}"
+            f"{path} — "
+            f"{type(error).__name__}: {error}"
         )
         return None

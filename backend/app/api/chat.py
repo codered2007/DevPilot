@@ -19,6 +19,4 @@ async def chat(
         request.message,
     )
 
-    return {
-        "response": response,
-    }
+    return response
