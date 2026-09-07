@@ -3,6 +3,7 @@ from fastapi import APIRouter
 from app.schemas.chat import ChatRequest
 from app.services.ai_service import ask_ai
 
+
 router = APIRouter(
     prefix="/chat",
     tags=["Chat"],
@@ -17,6 +18,7 @@ async def chat(
         request.owner,
         request.repo,
         request.message,
+        request.history,
     )
 
     return response

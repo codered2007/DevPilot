@@ -73,6 +73,11 @@ function AIChatPanel({
       return;
     }
 
+    const history = messages.map((message) => ({
+      role: message.role,
+      content: message.content,
+    }));
+
     setMessages((prev) => [
       ...prev,
       {
@@ -88,7 +93,8 @@ function AIChatPanel({
       const result = await chatWithAI(
         owner,
         repo,
-        prompt
+        prompt,
+        history
       );
 
       setMessages((prev) => [

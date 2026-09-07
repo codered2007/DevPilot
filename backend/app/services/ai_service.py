@@ -8,6 +8,7 @@ from app.services.github_service import (
     search_repository_with_content,
 )
 
+
 load_dotenv()
 
 client = genai.Client(
@@ -19,11 +20,22 @@ async def ask_ai(
     owner: str,
     repo: str,
     message: str,
+    history: list,
 ):
+    retrieval_query = "\n".join(
+        f"{item.role}: {item.content}"
+        for item in history[-4:]
+    )
+
+    retrieval_query = (
+        f"{retrieval_query}\n"
+        f"User: {message}"
+    )
+
     matches = await search_repository_with_content(
         owner,
         repo,
-        message,
+        retrieval_query,
     )
 
     context_parts = []
@@ -87,6 +99,11 @@ async def ask_ai(
             "could be retrieved."
         )
 
+    conversation = "\n\n".join(
+        f"{item.role.upper()}: {item.content}"
+        for item in history
+    )
+
     prompt = f"""
 You are DevPilot, an AI software engineer.
 
@@ -100,6 +117,10 @@ Repository Context:
 
 {context}
 
+Conversation History:
+
+{conversation}
+
 User Question:
 
 {message}
@@ -107,6 +128,8 @@ User Question:
 Instructions:
 
 - Give a clear and practical answer.
+- Use the conversation history to understand follow-up questions
+  and references such as "it", "that", or "where is this used?".
 - Reference specific files when useful.
 - Explain your reasoning from the available code.
 - If the available repository context is insufficient,
