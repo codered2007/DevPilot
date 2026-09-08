@@ -409,6 +409,47 @@ async def search_repository(
     return results[:8]
 
 
+def chunk_code(
+    content: str,
+    chunk_size: int = 120,
+    overlap: int = 20,
+):
+    lines = content.splitlines()
+
+    if not lines:
+        return []
+
+    chunks = []
+
+    start = 0
+
+    while start < len(lines):
+        end = min(
+            start + chunk_size,
+            len(lines),
+        )
+
+        chunk = "\n".join(
+            lines[start:end]
+        )
+
+        if chunk.strip():
+            chunks.append(
+                {
+                    "content": chunk,
+                    "start_line": start + 1,
+                    "end_line": end,
+                }
+            )
+
+        if end >= len(lines):
+            break
+
+        start = end - overlap
+
+    return chunks
+
+
 async def search_repository_with_content(
     owner: str,
     repo: str,
@@ -540,31 +581,47 @@ async def search_repository_with_content(
         if not file:
             continue
 
-        content = file["content"].lower()
+        content = file["content"]
 
-        score = get_path_score(
-            file["path"],
-            query_words,
-            query_text,
-        )
+        chunks = chunk_code(content)
 
-        # Reward an exact phrase match.
-        if query_text and query_text in content:
-            score += 10
+        for chunk in chunks:
+            chunk_content = chunk["content"].lower()
 
-        # Score individual query terms based on frequency.
-        for word in query_words:
-            occurrences = content.count(word)
-
-            # Cap the frequency contribution.
-            score += min(occurrences, 10)
-
-        scored_results.append(
-            (
-                score,
-                file,
+            score = get_path_score(
+                file["path"],
+                query_words,
+                query_text,
             )
-        )
+
+            # Reward an exact phrase match.
+            if (
+                query_text
+                and query_text in chunk_content
+            ):
+                score += 10
+
+            # Score individual query terms based
+            # on frequency inside the chunk.
+            for word in query_words:
+                occurrences = chunk_content.count(
+                    word
+                )
+
+                # Cap the frequency contribution.
+                score += min(occurrences, 10)
+
+            scored_results.append(
+                (
+                    score,
+                    {
+                        "path": file["path"],
+                        "content": chunk["content"],
+                        "start_line": chunk["start_line"],
+                        "end_line": chunk["end_line"],
+                    },
+                )
+            )
 
     scored_results.sort(
         key=lambda item: item[0],

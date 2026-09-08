@@ -43,7 +43,7 @@ async def ask_ai(
     source_files = []
 
     MAX_CONTEXT_LENGTH = 40000
-    MAX_FILE_LENGTH = 10000
+    MAX_CHUNK_LENGTH = 10000
 
     for match in matches[:8]:
         raw_content = match.get(
@@ -71,23 +71,45 @@ async def ask_ai(
         if remaining <= 0:
             break
 
-        file_content = decoded_content[
+        chunk_content = decoded_content[
             :min(
-                MAX_FILE_LENGTH,
+                MAX_CHUNK_LENGTH,
                 remaining,
             )
         ]
 
+        start_line = match.get(
+            "start_line"
+        )
+
+        end_line = match.get(
+            "end_line"
+        )
+
+        if (
+            start_line is not None
+            and end_line is not None
+        ):
+            file_label = (
+                f"FILE: {match['path']} "
+                f"(lines {start_line}-{end_line})"
+            )
+        else:
+            file_label = (
+                f"FILE: {match['path']}"
+            )
+
         context_parts.append(
-            f"FILE: {match['path']}\n\n"
-            f"{file_content}"
+            f"{file_label}\n\n"
+            f"{chunk_content}"
         )
 
-        source_files.append(
-            match["path"]
-        )
+        if match["path"] not in source_files:
+            source_files.append(
+                match["path"]
+            )
 
-        context_length += len(file_content)
+        context_length += len(chunk_content)
 
     context = "\n\n---\n\n".join(
         context_parts
@@ -131,6 +153,8 @@ Instructions:
 - Use the conversation history to understand follow-up questions
   and references such as "it", "that", or "where is this used?".
 - Reference specific files when useful.
+- When line ranges are provided, use them when explaining
+  where an implementation is located.
 - Explain your reasoning from the available code.
 - If the available repository context is insufficient,
   explicitly say what information is missing.
