@@ -1,15 +1,15 @@
 import os
-from base64 import b64decode
 
 from dotenv import load_dotenv
 from google import genai
 
-from app.services.github_service import (
-    search_repository_with_content,
+from app.services.vector_store import (
+    search_code,
 )
 
 
 load_dotenv()
+
 
 client = genai.Client(
     api_key=os.getenv("GEMINI_API_KEY")
@@ -22,20 +22,13 @@ async def ask_ai(
     message: str,
     history: list,
 ):
-    retrieval_query = "\n".join(
-        f"{item.role}: {item.content}"
-        for item in history[-4:]
-    )
-
-    retrieval_query = (
-        f"{retrieval_query}\n"
-        f"User: {message}"
-    )
-
-    matches = await search_repository_with_content(
+    # Use the current user question for retrieval.
+    # Conversation history is handled separately by Gemini.
+    matches = search_code(
         owner,
         repo,
-        retrieval_query,
+        message,
+        limit=8,
     )
 
     context_parts = []
@@ -45,23 +38,13 @@ async def ask_ai(
     MAX_CONTEXT_LENGTH = 40000
     MAX_CHUNK_LENGTH = 10000
 
-    for match in matches[:8]:
-        raw_content = match.get(
+    for match in matches:
+        content = match.get(
             "content",
             "",
         )
 
-        try:
-            decoded_content = b64decode(
-                raw_content
-            ).decode(
-                "utf-8",
-                errors="ignore",
-            )
-        except Exception:
-            decoded_content = raw_content
-
-        if not decoded_content.strip():
+        if not content.strip():
             continue
 
         remaining = (
@@ -71,7 +54,7 @@ async def ask_ai(
         if remaining <= 0:
             break
 
-        chunk_content = decoded_content[
+        chunk_content = content[
             :min(
                 MAX_CHUNK_LENGTH,
                 remaining,
@@ -109,7 +92,9 @@ async def ask_ai(
                 match["path"]
             )
 
-        context_length += len(chunk_content)
+        context_length += len(
+            chunk_content
+        )
 
     context = "\n\n---\n\n".join(
         context_parts
@@ -118,7 +103,8 @@ async def ask_ai(
     if not context:
         context = (
             "No relevant repository files "
-            "could be retrieved."
+            "could be retrieved from the "
+            "semantic code index."
         )
 
     conversation = "\n\n".join(
@@ -143,7 +129,7 @@ Conversation History:
 
 {conversation}
 
-User Question:
+Current User Question:
 
 {message}
 
@@ -152,6 +138,7 @@ Instructions:
 - Give a clear and practical answer.
 - Use the conversation history to understand follow-up questions
   and references such as "it", "that", or "where is this used?".
+- Use the repository context to answer questions about the code.
 - Reference specific files when useful.
 - When line ranges are provided, use them when explaining
   where an implementation is located.

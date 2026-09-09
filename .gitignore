@@ -22,3 +22,8 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+
+# ChromaDB local vector store
+backend/data/
+structure.txt

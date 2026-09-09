@@ -5,6 +5,7 @@ from app.api.repositories import router as repository_router
 from app.api.chat import router as chat_router
 from app.api.summary import router as summary_router
 from app.api.explanation import router as explanation_router
+from app.api.index import router as index_router
 
 
 app = FastAPI(
@@ -30,6 +31,7 @@ app.include_router(repository_router)
 app.include_router(chat_router)
 app.include_router(summary_router)
 app.include_router(explanation_router)
+app.include_router(index_router)
 
 
 @app.get("/")
