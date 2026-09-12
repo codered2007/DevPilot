@@ -29,8 +29,11 @@ function Repository() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
-  const [selectedFilePath, setSelectedFilePath] = useState("");
-  const [fileContent, setFileContent] = useState("");
+  const [selectedFilePath, setSelectedFilePath] =
+    useState("");
+
+  const [fileContent, setFileContent] =
+    useState("");
 
   const tree = buildFileTree(files);
   const stats = getRepositoryStats(files);
@@ -48,12 +51,21 @@ function Repository() {
           repository.repo
         );
 
-        console.log("Repository tree:", tree);
+        console.log(
+          "Repository tree:",
+          tree
+        );
 
         setFiles(tree);
       } catch (err) {
-        console.error("Failed to load repository tree:", err);
-        setError("Failed to load repository tree.");
+        console.error(
+          "Failed to load repository tree:",
+          err
+        );
+
+        setError(
+          "Failed to load repository tree."
+        );
       } finally {
         setLoading(false);
       }
@@ -62,16 +74,27 @@ function Repository() {
     loadTree();
   }, [repository]);
 
-  async function handleSelectFile(path: string) {
-    console.log("Selected file path:", path);
+  async function handleSelectFile(
+    path: string
+  ) {
+    console.log(
+      "Selected file path:",
+      path
+    );
 
     if (!path) {
-      console.error("No file path was provided.");
+      console.error(
+        "No file path was provided."
+      );
+
       return;
     }
 
     if (!repository) {
-      console.error("No repository is currently selected.");
+      console.error(
+        "No repository is currently selected."
+      );
+
       return;
     }
 
@@ -86,35 +109,57 @@ function Repository() {
       );
 
       if (!file || !file.content) {
-        throw new Error("File content was not returned.");
+        throw new Error(
+          "File content was not returned."
+        );
       }
 
-      const decoded = Base64.decode(file.content);
+      const decoded = Base64.decode(
+        file.content
+      );
 
       setFileContent(decoded);
     } catch (err) {
-      console.error("Failed to load file:", err);
-      setFileContent("Unable to load file.");
+      console.error(
+        "Failed to load file:",
+        err
+      );
+
+      setFileContent(
+        "Unable to load file."
+      );
     }
+  }
+
+  function handleApplyCode(
+    code: string
+  ) {
+    setFileContent(code);
   }
 
   if (!repository) {
     return (
       <div className="rounded-3xl border border-zinc-800 bg-zinc-900 p-10 text-center">
+
         <h1 className="text-3xl font-bold">
           No Repository Imported
         </h1>
 
         <p className="mt-4 text-zinc-400">
-          Go back to the dashboard and import a repository.
+          Go back to the dashboard and
+          import a repository.
         </p>
+
       </div>
     );
   }
 
   return (
     <div className="space-y-8">
-      <RepositoryHeader repository={repository} />
+
+      <RepositoryHeader
+        repository={repository}
+      />
 
       {loading && (
         <div className="rounded-3xl border border-zinc-800 bg-zinc-900 p-8">
@@ -130,35 +175,54 @@ function Repository() {
 
       {!loading && !error && (
         <>
+
           <div className="grid gap-6 xl:grid-cols-12">
+
             <div className="xl:col-span-3">
               <FileTree
                 nodes={tree}
-                onSelectFile={handleSelectFile}
+                onSelectFile={
+                  handleSelectFile
+                }
               />
             </div>
+
 
             <div className="xl:col-span-6">
               <CodeViewer
                 owner={repository.owner}
                 repo={repository.repo}
                 file={fileContent}
-                fileName={selectedFilePath}
+                fileName={
+                  selectedFilePath
+                }
+                onApplyCode={
+                  handleApplyCode
+                }
               />
             </div>
+
 
             <div className="xl:col-span-3">
               <AIChatPanel
                 owner={repository.owner}
                 repo={repository.repo}
-                onSelectFile={handleSelectFile}
+                onSelectFile={
+                  handleSelectFile
+                }
               />
             </div>
+
           </div>
 
-          <RepositoryStats stats={stats} />
+
+          <RepositoryStats
+            stats={stats}
+          />
+
         </>
       )}
+
     </div>
   );
 }

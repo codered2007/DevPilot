@@ -1,7 +1,7 @@
 import asyncio
 import os
 import re
-
+import base64
 import httpx
 from dotenv import load_dotenv
 
@@ -756,4 +756,240 @@ async def get_file_content(
             f"{path} — "
             f"{type(error).__name__}: {error}"
         )
+        return None
+async def get_default_branch(
+    owner: str,
+    repo: str,
+):
+    url = (
+        f"https://api.github.com/repos/"
+        f"{owner}/{repo}"
+    )
+
+    try:
+        async with httpx.AsyncClient(
+            timeout=TIMEOUT
+        ) as client:
+            response = await client.get(
+                url,
+                headers=HEADERS,
+            )
+
+            response.raise_for_status()
+
+            data = response.json()
+
+            return data.get(
+                "default_branch"
+            )
+
+    except httpx.RequestError as exc:
+        print(
+            f"GitHub request failed: {exc}"
+        )
+
+        return None
+
+
+async def get_branch_sha(
+    owner: str,
+    repo: str,
+    branch: str,
+):
+    url = (
+        f"https://api.github.com/repos/"
+        f"{owner}/{repo}/git/ref/heads/"
+        f"{branch}"
+    )
+
+    try:
+        async with httpx.AsyncClient(
+            timeout=TIMEOUT
+        ) as client:
+            response = await client.get(
+                url,
+                headers=HEADERS,
+            )
+
+            response.raise_for_status()
+
+            data = response.json()
+
+            return (
+                data
+                .get("object", {})
+                .get("sha")
+            )
+
+    except httpx.RequestError as exc:
+        print(
+            f"GitHub request failed: {exc}"
+        )
+
+        return None
+
+
+async def create_branch(
+    owner: str,
+    repo: str,
+    branch: str,
+    base_sha: str,
+):
+    url = (
+        f"https://api.github.com/repos/"
+        f"{owner}/{repo}/git/refs"
+    )
+
+    payload = {
+        "ref": f"refs/heads/{branch}",
+        "sha": base_sha,
+    }
+
+    try:
+        async with httpx.AsyncClient(
+            timeout=TIMEOUT
+        ) as client:
+            response = await client.post(
+                url,
+                headers=HEADERS,
+                json=payload,
+            )
+
+            response.raise_for_status()
+
+            data = response.json()
+
+            return data.get(
+                "ref"
+            )
+
+    except httpx.RequestError as exc:
+        print(
+            f"GitHub request failed: {exc}"
+        )
+
+        return None
+
+
+async def update_file_on_branch(
+    owner: str,
+    repo: str,
+    path: str,
+    content: str,
+    branch: str,
+    message: str,
+):
+    url = (
+        f"https://api.github.com/repos/"
+        f"{owner}/{repo}/contents/"
+        f"{path}"
+    )
+
+    encoded_content = base64.b64encode(
+        content.encode("utf-8")
+    ).decode("utf-8")
+
+    current_file = await get_file_content(
+        owner,
+        repo,
+        path,
+    )
+
+    if not current_file:
+        print(
+            "Could not retrieve current file:"
+            f" {path}"
+        )
+        return None
+
+    file_sha = current_file.get("sha")
+
+    print(
+        "Current file SHA:",
+        file_sha,
+    )
+
+    if not file_sha:
+        print(
+            "GitHub did not return a file SHA."
+        )
+        return None
+
+    payload = {
+        "message": message,
+        "content": encoded_content,
+        "sha": file_sha,
+        "branch": branch,
+    }
+
+    print("Updating GitHub file:")
+    print("Repository:", f"{owner}/{repo}")
+    print("Path:", path)
+    print("Branch:", branch)
+    print("Commit message:", message)
+
+    try:
+        async with httpx.AsyncClient(
+            timeout=TIMEOUT
+        ) as client:
+
+            response = await client.put(
+                url,
+                headers=HEADERS,
+                json=payload,
+            )
+
+            print(
+                "GitHub update status:",
+                response.status_code,
+            )
+
+            print(
+                "GitHub update response:",
+                response.text,
+            )
+
+            response.raise_for_status()
+
+            data = response.json()
+
+            commit = data.get(
+                "commit",
+                {}
+            )
+
+            return {
+                "path": path,
+                "branch": branch,
+                "commit_sha": commit.get(
+                    "sha"
+                ),
+                "commit_url": commit.get(
+                    "html_url"
+                ),
+            }
+
+    except httpx.HTTPStatusError as exc:
+        print(
+            "GitHub rejected file update:"
+        )
+
+        print(
+            "Status:",
+            exc.response.status_code,
+        )
+
+        print(
+            "Response:",
+            exc.response.text,
+        )
+
+        return None
+
+    except httpx.RequestError as exc:
+        print(
+            "GitHub network request failed:",
+            exc,
+        )
+
         return None

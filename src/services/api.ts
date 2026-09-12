@@ -1,48 +1,65 @@
 const API_URL = "http://127.0.0.1:8000";
 
+
 export interface ChatMessage {
   role: "user" | "assistant";
   content: string;
 }
+
 
 export interface ChatResponse {
   response: string;
   sources: string[];
 }
 
-export async function importRepository(url: string) {
+
+export async function importRepository(
+  url: string
+) {
   const response = await fetch(
     `${API_URL}/repositories/import`,
     {
       method: "POST",
+
       headers: {
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({ url }),
+
+      body: JSON.stringify({
+        url,
+      }),
     }
   );
 
   if (!response.ok) {
-    throw new Error("Import failed");
+    throw new Error(
+      "Import failed"
+    );
   }
 
   return response.json();
 }
+
 
 export async function getRepositoryTree(
   owner: string,
   repo: string
 ) {
   const response = await fetch(
-    `${API_URL}/repositories/tree?owner=${owner}&repo=${repo}`
+    `${API_URL}/repositories/tree?owner=${encodeURIComponent(
+      owner
+    )}&repo=${encodeURIComponent(repo)}`
   );
 
   if (!response.ok) {
-    throw new Error("Failed to fetch repository tree");
+    throw new Error(
+      "Failed to fetch repository tree"
+    );
   }
 
   return response.json();
 }
+
 
 export async function getFileContent(
   owner: string,
@@ -50,15 +67,22 @@ export async function getFileContent(
   path: string
 ) {
   const response = await fetch(
-    `${API_URL}/repositories/file?owner=${owner}&repo=${repo}&path=${encodeURIComponent(path)}`
+    `${API_URL}/repositories/file?owner=${encodeURIComponent(
+      owner
+    )}&repo=${encodeURIComponent(
+      repo
+    )}&path=${encodeURIComponent(path)}`
   );
 
   if (!response.ok) {
-    throw new Error("Failed to fetch file");
+    throw new Error(
+      "Failed to fetch file"
+    );
   }
 
   return response.json();
 }
+
 
 export async function chatWithAI(
   owner: string,
@@ -66,13 +90,16 @@ export async function chatWithAI(
   message: string,
   history: ChatMessage[]
 ): Promise<ChatResponse> {
+
   const response = await fetch(
     `${API_URL}/chat/`,
     {
       method: "POST",
+
       headers: {
         "Content-Type": "application/json",
       },
+
       body: JSON.stringify({
         owner,
         repo,
@@ -83,26 +110,34 @@ export async function chatWithAI(
   );
 
   if (!response.ok) {
-    throw new Error("AI request failed");
+    throw new Error(
+      "AI request failed"
+    );
   }
 
   return response.json();
 }
+
 
 export async function getRepositorySummary(
   owner: string,
   repo: string
 ) {
   const response = await fetch(
-    `${API_URL}/summary?owner=${owner}&repo=${repo}`
+    `${API_URL}/summary?owner=${encodeURIComponent(
+      owner
+    )}&repo=${encodeURIComponent(repo)}`
   );
 
   if (!response.ok) {
-    throw new Error("Failed to analyze repository");
+    throw new Error(
+      "Failed to analyze repository"
+    );
   }
 
   return response.json();
 }
+
 
 export async function explainCode(
   owner: string,
@@ -114,9 +149,11 @@ export async function explainCode(
     `${API_URL}/explain/`,
     {
       method: "POST",
+
       headers: {
         "Content-Type": "application/json",
       },
+
       body: JSON.stringify({
         owner,
         repo,
@@ -127,7 +164,129 @@ export async function explainCode(
   );
 
   if (!response.ok) {
-    throw new Error("Code explanation failed");
+    throw new Error(
+      "Code explanation failed"
+    );
+  }
+
+  return response.json();
+}
+
+
+export interface CodeActionResponse {
+  original_code: string;
+  modified_code: string;
+  action:
+    | "fix"
+    | "improve"
+    | "refactor";
+}
+
+
+export async function generateCodeAction(
+  owner: string,
+  repo: string,
+  filePath: string,
+  code: string,
+  action:
+    | "fix"
+    | "improve"
+    | "refactor"
+): Promise<CodeActionResponse> {
+
+  const response = await fetch(
+    `${API_URL}/code-actions/`,
+    {
+      method: "POST",
+
+      headers: {
+        "Content-Type": "application/json",
+      },
+
+      body: JSON.stringify({
+        owner,
+        repo,
+        file_path: filePath,
+        code,
+        action,
+      }),
+    }
+  );
+
+  if (!response.ok) {
+    throw new Error(
+      "Failed to generate code action"
+    );
+  }
+
+  return response.json();
+}
+
+
+export interface ApplyCodeResponse {
+  message: string;
+  owner: string;
+  repo: string;
+  file_path: string;
+  action:
+    | "fix"
+    | "improve"
+    | "refactor";
+  branch: string;
+  commit_sha: string;
+  commit_url: string;
+}
+
+
+export async function applyCodeToGitHub(
+  owner: string,
+  repo: string,
+  filePath: string,
+  code: string,
+  action:
+    | "fix"
+    | "improve"
+    | "refactor"
+): Promise<ApplyCodeResponse> {
+
+  const response = await fetch(
+    `${API_URL}/apply-code/`,
+    {
+      method: "POST",
+
+      headers: {
+        "Content-Type": "application/json",
+      },
+
+      body: JSON.stringify({
+        owner,
+        repo,
+        file_path: filePath,
+        code,
+        action,
+      }),
+    }
+  );
+
+  if (!response.ok) {
+
+    let message =
+      "Failed to apply code to GitHub.";
+
+    try {
+
+      const error =
+        await response.json();
+
+      if (error.detail) {
+        message = error.detail;
+      }
+
+    } catch {
+      // Keep the default error message.
+    }
+
+    throw new Error(message);
   }
 
   return response.json();
