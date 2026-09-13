@@ -291,3 +291,57 @@ export async function applyCodeToGitHub(
 
   return response.json();
 }
+
+export interface PullRequestResponse {
+  message: string;
+  owner: string;
+  repo: string;
+  number: number;
+  title: string;
+  url: string;
+  state: string;
+  head: string;
+  base: string;
+}
+
+export async function createPullRequest(
+  owner: string,
+  repo: string,
+  title: string,
+  body: string,
+  head: string,
+  base: string = "main"
+): Promise<PullRequestResponse> {
+  const response = await fetch(`${API_URL}/pull-request/`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      owner,
+      repo,
+      title,
+      body,
+      head,
+      base,
+    }),
+  });
+
+  if (!response.ok) {
+    let message = "Failed to create Pull Request.";
+
+    try {
+      const error = await response.json();
+
+      if (error.detail) {
+        message = error.detail;
+      }
+    } catch {
+      // Keep the default error message.
+    }
+
+    throw new Error(message);
+  }
+
+  return response.json();
+}

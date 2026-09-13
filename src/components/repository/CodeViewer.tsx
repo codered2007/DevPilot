@@ -23,6 +23,7 @@ import {
   explainCode,
   generateCodeAction,
   applyCodeToGitHub,
+  createPullRequest,
 } from "../../services/api";
 
 
@@ -104,6 +105,12 @@ interface GitHubApplyResult {
   commit_url: string;
 }
 
+interface PullRequestResult {
+  number: number;
+  title: string;
+  url: string;
+}
+
 
 function CodeViewer({
   owner,
@@ -145,6 +152,14 @@ function CodeViewer({
   const [githubResult, setGithubResult] =
     useState<GitHubApplyResult | null>(null);
 
+  const [pullRequestLoading, setPullRequestLoading] =
+    useState(false);
+
+  const [pullRequestResult, setPullRequestResult] =
+    useState<PullRequestResult | null>(null);
+
+  const [pullRequestError, setPullRequestError] =
+    useState("");
 
   /*
    * Clear any previous AI proposal
@@ -159,6 +174,10 @@ function CodeViewer({
     setApplying(false);
     setApplyError("");
     setGithubResult(null);
+
+    setPullRequestLoading(false);
+    setPullRequestResult(null);
+    setPullRequestError("");
   }, [fileName]);
 
 
@@ -215,6 +234,9 @@ function CodeViewer({
       setActionCode("");
       setGithubResult(null);
       setApplyError("");
+
+      setPullRequestResult(null);
+      setPullRequestError("");
 
       const result =
         await generateCodeAction(
@@ -282,7 +304,6 @@ function CodeViewer({
       });
 
       setActionCode("");
-      setCompletedAction(null);
 
     } catch (err) {
 
@@ -302,6 +323,44 @@ function CodeViewer({
   }
 
 
+  async function handleCreatePullRequest() {
+    if (!githubResult || !completedAction || !fileName) {
+      return;
+    }
+
+    try {
+      setPullRequestLoading(true);
+      setPullRequestError("");
+      setPullRequestResult(null);
+
+      const result = await createPullRequest(
+        owner,
+        repo,
+        `DevPilot: ${completedAction} ${fileName}`,
+        `DevPilot generated a ${completedAction} change for \`${fileName}\`.\n\nThe changes were reviewed in DevPilot and committed to the \`${githubResult.branch}\` branch.`,
+        githubResult.branch,
+        "main"
+      );
+
+      setPullRequestResult({
+        number: result.number,
+        title: result.title,
+        url: result.url,
+      });
+    } catch (err) {
+      console.error(err);
+
+      setPullRequestError(
+        err instanceof Error
+          ? err.message
+          : "Failed to create Pull Request."
+      );
+    } finally {
+      setPullRequestLoading(false);
+    }
+  }
+
+
   function handleRejectCode() {
     if (applying) return;
 
@@ -310,6 +369,10 @@ function CodeViewer({
     setActionError("");
     setApplyError("");
     setGithubResult(null);
+
+    setPullRequestLoading(false);
+    setPullRequestResult(null);
+    setPullRequestError("");
   }
 
 
@@ -624,8 +687,82 @@ function CodeViewer({
 
           </div>
 
+          {!pullRequestResult && (
+
+            <div className="mt-5 border-t border-zinc-800 pt-5">
+
+              <button
+                onClick={handleCreatePullRequest}
+                disabled={pullRequestLoading}
+                className="flex items-center gap-2 rounded-lg bg-zinc-100 px-4 py-2 text-zinc-900 transition hover:bg-white disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {pullRequestLoading ? (
+                  <>
+                    <RefreshCw
+                      size={18}
+                      className="animate-spin"
+                    />
+                    Creating Pull Request...
+                  </>
+                ) : (
+                  <>
+                    <Check size={18} />
+                    Create Pull Request
+                  </>
+                )}
+              </button>
+
+            </div>
+
+          )}
+
         </div>
 
+      )}
+
+      {pullRequestError && (
+        <div className="rounded-3xl border border-red-700 bg-red-900/20 p-6 text-red-400">
+          {pullRequestError}
+        </div>
+      )}
+
+      {pullRequestResult && (
+        <div className="rounded-3xl border border-zinc-700 bg-zinc-900 p-6">
+
+          <div className="flex items-start gap-3">
+
+            <div className="mt-0.5 rounded-full bg-zinc-800 p-2">
+              <Check size={18} />
+            </div>
+
+            <div>
+
+              <h2 className="text-lg font-bold">
+                Pull Request created
+              </h2>
+
+              <p className="mt-1 text-sm text-zinc-400">
+                PR #{pullRequestResult.number}
+              </p>
+
+              <p className="mt-1 text-sm text-zinc-400">
+                {pullRequestResult.title}
+              </p>
+
+              <a
+                href={pullRequestResult.url}
+                target="_blank"
+                rel="noreferrer"
+                className="mt-3 inline-block text-sm underline"
+              >
+                View Pull Request on GitHub
+              </a>
+
+            </div>
+
+          </div>
+
+        </div>
       )}
 
 

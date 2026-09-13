@@ -993,3 +993,68 @@ async def update_file_on_branch(
         )
 
         return None
+
+
+async def create_pull_request(
+    owner: str,
+    repo: str,
+    title: str,
+    body: str,
+    head: str,
+    base: str,
+):
+    url = (
+        f"https://api.github.com/repos/"
+        f"{owner}/{repo}/pulls"
+    )
+
+    payload = {
+        "title": title,
+        "body": body,
+        "head": head,
+        "base": base,
+    }
+
+    try:
+        async with httpx.AsyncClient(
+            timeout=TIMEOUT
+        ) as client:
+
+            response = await client.post(
+                url,
+                headers=HEADERS,
+                json=payload,
+            )
+
+            print(
+                "GitHub PR status:",
+                response.status_code,
+            )
+
+            response.raise_for_status()
+
+            data = response.json()
+
+            return {
+                "number": data.get("number"),
+                "title": data.get("title"),
+                "url": data.get("html_url"),
+                "state": data.get("state"),
+                "head": data.get("head", {}).get("ref"),
+                "base": data.get("base", {}).get("ref"),
+            }
+
+    except httpx.HTTPStatusError as exc:
+        print(
+            "GitHub PR creation rejected:",
+            exc.response.status_code,
+            exc.response.text,
+        )
+        return None
+
+    except httpx.RequestError as exc:
+        print(
+            "GitHub PR request failed:",
+            exc,
+        )
+        return None
