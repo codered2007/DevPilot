@@ -7,6 +7,9 @@ import Editor, {
   DiffEditor,
 } from "@monaco-editor/react";
 
+import type { OnMount } from "@monaco-editor/react";
+import type { editor } from "monaco-editor";
+
 import {
   Clipboard,
   Sparkles,
@@ -33,6 +36,7 @@ interface CodeViewerProps {
   file?: string;
   fileName?: string;
   onApplyCode: (code: string) => void;
+  reviewLine?: number | null;
 }
 
 
@@ -105,10 +109,12 @@ interface GitHubApplyResult {
   commit_url: string;
 }
 
-interface PullRequestResult {
-  number: number;
-  title: string;
-  url: string;
+
+interface ReviewFixEventDetail {
+  filePath: string;
+  lineStart: number | null;
+  code: string;
+  modifiedCode: string;
 }
 
 
@@ -118,6 +124,7 @@ function CodeViewer({
   file,
   fileName,
   onApplyCode,
+  reviewLine,
 }: CodeViewerProps) {
 
   const [explaining, setExplaining] =
@@ -152,20 +159,71 @@ function CodeViewer({
   const [githubResult, setGithubResult] =
     useState<GitHubApplyResult | null>(null);
 
+
   const [pullRequestLoading, setPullRequestLoading] =
     useState(false);
 
   const [pullRequestResult, setPullRequestResult] =
-    useState<PullRequestResult | null>(null);
+    useState<{
+      number: number;
+      title: string;
+      url: string;
+    } | null>(null);
 
   const [pullRequestError, setPullRequestError] =
     useState("");
+
+
+  const [editorInstance, setEditorInstance] =
+    useState<editor.IStandaloneCodeEditor | null>(
+      null
+    );
+
+
+  const handleEditorMount: OnMount = (
+    editor
+  ) => {
+    setEditorInstance(editor);
+  };
+
+
+  /*
+   * Jump to the line reported by
+   * Repository Code Review.
+   */
+  useEffect(() => {
+
+    if (
+      !editorInstance ||
+      reviewLine === null ||
+      reviewLine === undefined
+    ) {
+      return;
+    }
+
+    editorInstance.revealLineInCenter(
+      reviewLine
+    );
+
+    editorInstance.setPosition({
+      lineNumber: reviewLine,
+      column: 1,
+    });
+
+    editorInstance.focus();
+
+  }, [
+    editorInstance,
+    reviewLine,
+  ]);
+
 
   /*
    * Clear any previous AI proposal
    * when the user switches files.
    */
   useEffect(() => {
+
     setCodeAction(null);
     setCompletedAction(null);
     setActionCode("");
@@ -175,35 +233,121 @@ function CodeViewer({
     setApplyError("");
     setGithubResult(null);
 
-    setPullRequestLoading(false);
     setPullRequestResult(null);
     setPullRequestError("");
+
   }, [fileName]);
 
 
+  /*
+   * Listen for a fix generated from
+   * an AI Code Review finding.
+   *
+   * Repository.tsx generates the fix and
+   * dispatches this browser event.
+   */
+  useEffect(() => {
+
+    function handleReviewFix(
+      event: Event
+    ) {
+
+      const customEvent =
+        event as CustomEvent<ReviewFixEventDetail>;
+
+      const detail =
+        customEvent.detail;
+
+
+      if (!detail) {
+        return;
+      }
+
+
+      /*
+       * Clear any previous action state.
+       */
+      setActionError("");
+      setApplyError("");
+
+      setGithubResult(null);
+
+      setPullRequestResult(null);
+      setPullRequestError("");
+
+      setCodeAction(null);
+
+
+      /*
+       * This proposal came from the
+       * Repository Code Review, so the
+       * action is always "fix".
+       */
+      setCompletedAction("fix");
+
+      setActionCode(
+        detail.modifiedCode
+      );
+
+    }
+
+
+    window.addEventListener(
+      "devpilot-review-fix",
+      handleReviewFix
+    );
+
+
+    return () => {
+
+      window.removeEventListener(
+        "devpilot-review-fix",
+        handleReviewFix
+      );
+
+    };
+
+  }, []);
+
+
   async function copyCode() {
+
     if (!file) return;
 
-    await navigator.clipboard.writeText(file);
+    await navigator.clipboard.writeText(
+      file
+    );
   }
 
 
   async function handleExplainCode() {
-    if (!file || !fileName) return;
+
+    if (!file || !fileName) {
+      return;
+    }
+
 
     try {
+
       setExplaining(true);
+
       setExplanationError("");
+
       setExplanation("");
 
-      const result = await explainCode(
-        owner,
-        repo,
-        fileName,
-        file
-      );
 
-      setExplanation(result.response);
+      const result =
+        await explainCode(
+          owner,
+          repo,
+          fileName,
+          file
+        );
+
+
+      setExplanation(
+        result.response
+      );
 
     } catch (err) {
 
@@ -224,19 +368,30 @@ function CodeViewer({
   async function handleCodeAction(
     action: CodeAction
   ) {
-    if (!file || !fileName) return;
+
+    if (!file || !fileName) {
+      return;
+    }
+
 
     try {
 
       setCodeAction(action);
+
       setCompletedAction(null);
+
       setActionError("");
+
       setActionCode("");
+
       setGithubResult(null);
+
       setApplyError("");
 
       setPullRequestResult(null);
+
       setPullRequestError("");
+
 
       const result =
         await generateCodeAction(
@@ -247,27 +402,35 @@ function CodeViewer({
           action
         );
 
+
       setActionCode(
         result.modified_code
       );
 
+
       setCompletedAction(action);
+
       setCodeAction(null);
 
     } catch (err) {
 
       console.error(err);
 
+
       setActionError(
         `Failed to ${action} the code.`
       );
 
+
       setCodeAction(null);
+
     }
+
   }
 
 
   async function handleApplyCode() {
+
     if (
       !actionCode ||
       !fileName ||
@@ -276,11 +439,19 @@ function CodeViewer({
       return;
     }
 
+
     try {
 
       setApplying(true);
+
       setApplyError("");
+
       setGithubResult(null);
+
+      setPullRequestResult(null);
+
+      setPullRequestError("");
+
 
       const result =
         await applyCodeToGitHub(
@@ -291,11 +462,15 @@ function CodeViewer({
           completedAction
         );
 
+
       /*
        * Update the local code viewer
        * with the applied version.
        */
-      onApplyCode(actionCode);
+      onApplyCode(
+        actionCode
+      );
+
 
       setGithubResult({
         branch: result.branch,
@@ -303,11 +478,20 @@ function CodeViewer({
         commit_url: result.commit_url,
       });
 
+
+      /*
+       * Clear the proposed code after
+       * successful application.
+       *
+       * Keep completedAction so the user
+       * can still create a Pull Request.
+       */
       setActionCode("");
 
     } catch (err) {
 
       console.error(err);
+
 
       setApplyError(
         err instanceof Error
@@ -320,63 +504,93 @@ function CodeViewer({
       setApplying(false);
 
     }
+
+  }
+
+
+  function handleRejectCode() {
+
+    if (applying) {
+      return;
+    }
+
+
+    setActionCode("");
+
+    setCompletedAction(null);
+
+    setActionError("");
+
+    setApplyError("");
+
+    setGithubResult(null);
+
+    setPullRequestResult(null);
+
+    setPullRequestError("");
+
   }
 
 
   async function handleCreatePullRequest() {
-    if (!githubResult || !completedAction || !fileName) {
+
+    if (
+      !githubResult ||
+      !completedAction ||
+      !fileName
+    ) {
       return;
     }
 
+
     try {
+
       setPullRequestLoading(true);
+
       setPullRequestError("");
+
       setPullRequestResult(null);
 
-      const result = await createPullRequest(
-        owner,
-        repo,
-        `DevPilot: ${completedAction} ${fileName}`,
-        `DevPilot generated a ${completedAction} change for \`${fileName}\`.\n\nThe changes were reviewed in DevPilot and committed to the \`${githubResult.branch}\` branch.`,
-        githubResult.branch,
-        "main"
-      );
+
+      const result =
+        await createPullRequest(
+          owner,
+          repo,
+          `DevPilot: ${completedAction} ${fileName}`,
+          `DevPilot generated a ${completedAction} change for \`${fileName}\`.\n\nThe changes were reviewed in DevPilot and committed to the \`${githubResult.branch}\` branch.`,
+          githubResult.branch,
+          "main"
+        );
+
 
       setPullRequestResult({
         number: result.number,
         title: result.title,
         url: result.url,
       });
+
     } catch (err) {
+
       console.error(err);
+
 
       setPullRequestError(
         err instanceof Error
           ? err.message
           : "Failed to create Pull Request."
       );
+
     } finally {
+
       setPullRequestLoading(false);
+
     }
-  }
 
-
-  function handleRejectCode() {
-    if (applying) return;
-
-    setActionCode("");
-    setCompletedAction(null);
-    setActionError("");
-    setApplyError("");
-    setGithubResult(null);
-
-    setPullRequestLoading(false);
-    setPullRequestResult(null);
-    setPullRequestError("");
   }
 
 
   return (
+
     <div className="space-y-6">
 
 
@@ -384,19 +598,25 @@ function CodeViewer({
 
       <div className="overflow-hidden rounded-3xl border border-zinc-800 bg-zinc-900">
 
+
         <div className="flex flex-col gap-4 border-b border-zinc-800 px-6 py-4 lg:flex-row lg:items-center lg:justify-between">
+
 
           <div>
 
             <h2 className="text-xl font-bold">
+
               {fileName
                 ? fileName.split("/").pop()
                 : "Code Viewer"}
+
             </h2>
+
 
             <Breadcrumbs
               path={fileName ?? ""}
             />
+
 
             <p className="text-sm text-zinc-500">
               Read-only
@@ -409,15 +629,22 @@ function CodeViewer({
 
             <div className="flex flex-wrap items-center gap-3">
 
+
               {/* Explain */}
 
               <button
-                onClick={handleExplainCode}
-                disabled={explaining}
+                onClick={
+                  handleExplainCode
+                }
+                disabled={
+                  explaining
+                }
                 className="flex items-center gap-2 rounded-lg bg-zinc-800 px-4 py-2 transition hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-50"
               >
 
-                <Sparkles size={18} />
+                <Sparkles
+                  size={18}
+                />
 
                 {explaining
                   ? "Explaining..."
@@ -430,15 +657,22 @@ function CodeViewer({
 
               <button
                 onClick={() =>
-                  handleCodeAction("fix")
+                  handleCodeAction(
+                    "fix"
+                  )
                 }
-                disabled={codeAction !== null}
+                disabled={
+                  codeAction !== null
+                }
                 className="flex items-center gap-2 rounded-lg bg-zinc-800 px-4 py-2 transition hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-50"
               >
 
-                <Wrench size={18} />
+                <Wrench
+                  size={18}
+                />
 
-                {codeAction === "fix"
+                {codeAction ===
+                "fix"
                   ? "Fixing..."
                   : "Fix"}
 
@@ -449,15 +683,22 @@ function CodeViewer({
 
               <button
                 onClick={() =>
-                  handleCodeAction("improve")
+                  handleCodeAction(
+                    "improve"
+                  )
                 }
-                disabled={codeAction !== null}
+                disabled={
+                  codeAction !== null
+                }
                 className="flex items-center gap-2 rounded-lg bg-zinc-800 px-4 py-2 transition hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-50"
               >
 
-                <Sparkles size={18} />
+                <Sparkles
+                  size={18}
+                />
 
-                {codeAction === "improve"
+                {codeAction ===
+                "improve"
                   ? "Improving..."
                   : "Improve"}
 
@@ -468,15 +709,22 @@ function CodeViewer({
 
               <button
                 onClick={() =>
-                  handleCodeAction("refactor")
+                  handleCodeAction(
+                    "refactor"
+                  )
                 }
-                disabled={codeAction !== null}
+                disabled={
+                  codeAction !== null
+                }
                 className="flex items-center gap-2 rounded-lg bg-zinc-800 px-4 py-2 transition hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-50"
               >
 
-                <RefreshCw size={18} />
+                <RefreshCw
+                  size={18}
+                />
 
-                {codeAction === "refactor"
+                {codeAction ===
+                "refactor"
                   ? "Refactoring..."
                   : "Refactor"}
 
@@ -490,7 +738,9 @@ function CodeViewer({
                 className="flex items-center gap-2 rounded-lg bg-zinc-800 px-4 py-2 transition hover:bg-zinc-700"
               >
 
-                <Clipboard size={18} />
+                <Clipboard
+                  size={18}
+                />
 
                 Copy
 
@@ -510,8 +760,15 @@ function CodeViewer({
           <Editor
             height="700px"
             theme="vs-dark"
-            language={getLanguage(fileName)}
+            language={
+              getLanguage(
+                fileName
+              )
+            }
             value={file}
+            onMount={
+              handleEditorMount
+            }
             options={{
               readOnly: true,
 
@@ -523,7 +780,8 @@ function CodeViewer({
 
               fontLigatures: true,
 
-              scrollBeyondLastLine: false,
+              scrollBeyondLastLine:
+                false,
 
               wordWrap: "on",
 
@@ -556,11 +814,14 @@ function CodeViewer({
 
           <div className="flex items-center gap-3">
 
-            <Sparkles size={20} />
+            <Sparkles
+              size={20}
+            />
 
             <p className="text-zinc-400">
 
-              DevPilot is analyzing the selected code...
+              DevPilot is analyzing the
+              selected code...
 
             </p>
 
@@ -590,9 +851,12 @@ function CodeViewer({
 
         <div className="rounded-3xl border border-zinc-800 bg-zinc-900 p-6">
 
+
           <div className="mb-6 flex items-center gap-2">
 
-            <Sparkles size={20} />
+            <Sparkles
+              size={20}
+            />
 
             <h2 className="text-xl font-bold">
               Code Explanation
@@ -646,13 +910,18 @@ function CodeViewer({
 
         <div className="rounded-3xl border border-zinc-700 bg-zinc-900 p-6">
 
+
           <div className="flex items-start gap-3">
+
 
             <div className="mt-0.5 rounded-full bg-zinc-800 p-2">
 
-              <Check size={18} />
+              <Check
+                size={18}
+              />
 
             </div>
+
 
             <div>
 
@@ -660,20 +929,26 @@ function CodeViewer({
                 Changes committed to GitHub
               </h2>
 
+
               <p className="mt-1 text-sm text-zinc-400">
 
                 Branch:
 
                 <span className="ml-2 font-mono text-zinc-300">
+
                   {githubResult.branch}
+
                 </span>
 
               </p>
 
+
               {githubResult.commit_url && (
 
                 <a
-                  href={githubResult.commit_url}
+                  href={
+                    githubResult.commit_url
+                  }
                   target="_blank"
                   rel="noreferrer"
                   className="mt-3 inline-block text-sm underline"
@@ -683,86 +958,132 @@ function CodeViewer({
 
               )}
 
+
+              {/* Create Pull Request */}
+
+              {!pullRequestResult && (
+
+                <div className="mt-5">
+
+                  <button
+                    type="button"
+                    onClick={
+                      handleCreatePullRequest
+                    }
+                    disabled={
+                      pullRequestLoading
+                    }
+                    className="flex items-center gap-2 rounded-lg bg-zinc-100 px-4 py-2 text-sm font-medium text-zinc-900 transition hover:bg-white disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+
+                    {pullRequestLoading ? (
+
+                      <>
+
+                        <RefreshCw
+                          size={17}
+                          className="animate-spin"
+                        />
+
+                        Creating Pull Request...
+
+                      </>
+
+                    ) : (
+
+                      <>
+
+                        <Sparkles
+                          size={17}
+                        />
+
+                        Create Pull Request
+
+                      </>
+
+                    )}
+
+                  </button>
+
+                </div>
+
+              )}
+
+
+              {/* Pull Request Error */}
+
+              {pullRequestError && (
+
+                <div className="mt-4 rounded-xl border border-red-700 bg-red-900/20 p-4 text-sm text-red-400">
+
+                  {pullRequestError}
+
+                </div>
+
+              )}
+
+
+              {/* Pull Request Success */}
+
+              {pullRequestResult && (
+
+                <div className="mt-5 rounded-2xl border border-zinc-700 bg-zinc-950 p-5">
+
+
+                  <div className="flex items-start gap-3">
+
+
+                    <div className="mt-0.5 rounded-full bg-zinc-800 p-2">
+
+                      <Check
+                        size={18}
+                      />
+
+                    </div>
+
+
+                    <div>
+
+                      <h3 className="font-semibold">
+                        Pull Request created
+                      </h3>
+
+
+                      <p className="mt-1 text-sm text-zinc-400">
+
+                        PR #
+                        {
+                          pullRequestResult.number
+                        }
+
+                      </p>
+
+
+                      <a
+                        href={
+                          pullRequestResult.url
+                        }
+                        target="_blank"
+                        rel="noreferrer"
+                        className="mt-3 inline-block text-sm underline"
+                      >
+                        View Pull Request on GitHub
+                      </a>
+
+                    </div>
+
+                  </div>
+
+                </div>
+
+              )}
+
             </div>
 
           </div>
 
-          {!pullRequestResult && (
-
-            <div className="mt-5 border-t border-zinc-800 pt-5">
-
-              <button
-                onClick={handleCreatePullRequest}
-                disabled={pullRequestLoading}
-                className="flex items-center gap-2 rounded-lg bg-zinc-100 px-4 py-2 text-zinc-900 transition hover:bg-white disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                {pullRequestLoading ? (
-                  <>
-                    <RefreshCw
-                      size={18}
-                      className="animate-spin"
-                    />
-                    Creating Pull Request...
-                  </>
-                ) : (
-                  <>
-                    <Check size={18} />
-                    Create Pull Request
-                  </>
-                )}
-              </button>
-
-            </div>
-
-          )}
-
         </div>
 
-      )}
-
-      {pullRequestError && (
-        <div className="rounded-3xl border border-red-700 bg-red-900/20 p-6 text-red-400">
-          {pullRequestError}
-        </div>
-      )}
-
-      {pullRequestResult && (
-        <div className="rounded-3xl border border-zinc-700 bg-zinc-900 p-6">
-
-          <div className="flex items-start gap-3">
-
-            <div className="mt-0.5 rounded-full bg-zinc-800 p-2">
-              <Check size={18} />
-            </div>
-
-            <div>
-
-              <h2 className="text-lg font-bold">
-                Pull Request created
-              </h2>
-
-              <p className="mt-1 text-sm text-zinc-400">
-                PR #{pullRequestResult.number}
-              </p>
-
-              <p className="mt-1 text-sm text-zinc-400">
-                {pullRequestResult.title}
-              </p>
-
-              <a
-                href={pullRequestResult.url}
-                target="_blank"
-                rel="noreferrer"
-                className="mt-3 inline-block text-sm underline"
-              >
-                View Pull Request on GitHub
-              </a>
-
-            </div>
-
-          </div>
-
-        </div>
       )}
 
 
@@ -772,7 +1093,9 @@ function CodeViewer({
 
         <div className="overflow-hidden rounded-3xl border border-zinc-800 bg-zinc-900">
 
+
           <div className="flex flex-col gap-4 border-b border-zinc-800 px-6 py-4 sm:flex-row sm:items-center sm:justify-between">
+
 
             <div>
 
@@ -780,11 +1103,14 @@ function CodeViewer({
                 Proposed Changes
               </h2>
 
+
               <p className="text-sm text-zinc-500">
 
                 DevPilot generated a proposed{" "}
 
-                {completedAction} version of this code.
+                {completedAction}
+
+                {" "}version of this code.
 
               </p>
 
@@ -793,40 +1119,61 @@ function CodeViewer({
 
             <div className="flex flex-wrap items-center gap-3">
 
+
               {/* Reject */}
 
               <button
-                onClick={handleRejectCode}
-                disabled={applying}
+                onClick={
+                  handleRejectCode
+                }
+                disabled={
+                  applying
+                }
                 className="rounded-lg bg-zinc-800 px-4 py-2 transition hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-50"
               >
+
                 Reject
+
               </button>
 
 
               {/* Apply */}
 
               <button
-                onClick={handleApplyCode}
-                disabled={applying}
+                onClick={
+                  handleApplyCode
+                }
+                disabled={
+                  applying
+                }
                 className="flex items-center gap-2 rounded-lg bg-zinc-100 px-4 py-2 text-zinc-900 transition hover:bg-white disabled:cursor-not-allowed disabled:opacity-50"
               >
 
                 {applying ? (
+
                   <>
+
                     <RefreshCw
                       size={18}
                       className="animate-spin"
                     />
 
                     Applying...
+
                   </>
+
                 ) : (
+
                   <>
-                    <Check size={18} />
+
+                    <Check
+                      size={18}
+                    />
 
                     Apply to GitHub
+
                   </>
+
                 )}
 
               </button>
@@ -841,9 +1188,17 @@ function CodeViewer({
           <DiffEditor
             height="700px"
             theme="vs-dark"
-            language={getLanguage(fileName)}
-            original={file ?? ""}
-            modified={actionCode}
+            language={
+              getLanguage(
+                fileName
+              )
+            }
+            original={
+              file ?? ""
+            }
+            modified={
+              actionCode
+            }
             options={{
               readOnly: true,
 
@@ -855,13 +1210,15 @@ function CodeViewer({
 
               fontLigatures: true,
 
-              scrollBeyondLastLine: false,
+              scrollBeyondLastLine:
+                false,
 
               wordWrap: "on",
 
               automaticLayout: true,
 
-              renderSideBySide: true,
+              renderSideBySide:
+                true,
 
               padding: {
                 top: 20,
@@ -874,6 +1231,7 @@ function CodeViewer({
       )}
 
     </div>
+
   );
 }
 

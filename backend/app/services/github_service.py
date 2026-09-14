@@ -682,14 +682,10 @@ async def get_repository(
         return None
 
 
-async def get_repository_tree(
-    owner: str,
-    repo: str,
-):
+async def get_repository_tree(owner, repo):
     url = (
         f"https://api.github.com/repos/"
-        f"{owner}/{repo}/git/trees/HEAD"
-        f"?recursive=1"
+        f"{owner}/{repo}/git/trees/HEAD?recursive=1"
     )
 
     try:
@@ -697,29 +693,46 @@ async def get_repository_tree(
             follow_redirects=True,
             timeout=TIMEOUT,
         ) as client:
+
             response = await client.get(
                 url,
                 headers=HEADERS,
             )
 
-        print("=" * 50)
-        print("Tree URL:", url)
-        print("Status:", response.status_code)
-        print("=" * 50)
+            print(
+                "GitHub tree status:",
+                response.status_code,
+            )
 
-        if response.status_code != 200:
-            print(response.text)
-            return None
+            print(
+                "GitHub tree response:",
+                response.text[:1000],
+            )
 
-        return response.json()
+            response.raise_for_status()
 
-    except httpx.RequestError as error:
+            return response.json()
+
+    except httpx.HTTPStatusError as exc:
         print(
-            "GitHub tree request failed:",
-            error,
+            "GitHub tree request rejected:",
+            exc.response.status_code,
         )
+
+        print(
+            "GitHub tree error response:",
+            exc.response.text,
+        )
+
         return None
 
+    except httpx.RequestError as exc:
+        print(
+            "GitHub tree request failed:",
+            repr(exc),
+        )
+
+        return None
 
 async def get_file_content(
     owner: str,

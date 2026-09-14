@@ -345,3 +345,48 @@ export async function createPullRequest(
 
   return response.json();
 }
+export interface ReviewFinding {
+  severity: "high" | "medium" | "low";
+  title: string;
+  description: string;
+  file_path: string;
+  line_start: number | null;
+  line_end: number | null;
+}
+
+export interface RepositoryReviewResponse {
+  summary: string;
+  findings: ReviewFinding[];
+}
+
+export async function reviewRepository(
+  owner: string,
+  repo: string
+): Promise<RepositoryReviewResponse> {
+  const response = await fetch(
+    `${API_URL}/repository-review/?owner=${encodeURIComponent(
+      owner
+    )}&repo=${encodeURIComponent(repo)}`,
+    {
+      method: "POST",
+    }
+  );
+
+  if (!response.ok) {
+    let message = "Failed to review repository.";
+
+    try {
+      const error = await response.json();
+
+      if (error.detail) {
+        message = error.detail;
+      }
+    } catch {
+      // Keep the default error message.
+    }
+
+    throw new Error(message);
+  }
+
+  return response.json();
+}
