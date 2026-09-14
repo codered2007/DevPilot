@@ -686,9 +686,10 @@ async def get_repository_tree(
     owner: str,
     repo: str,
 ):
+    branch = await get_default_branch(owner, repo) or "main"
     url = (
         f"https://api.github.com/repos/"
-        f"{owner}/{repo}/git/trees/HEAD"
+        f"{owner}/{repo}/git/trees/{branch}"
         f"?recursive=1"
     )
 
@@ -748,7 +749,16 @@ async def get_file_content(
             )
             return None
 
-        return response.json()
+        data = response.json()
+        if isinstance(data, dict) and "content" in data:
+            encoding = data.get("encoding", "")
+            if encoding == "base64":
+                try:
+                    raw_content = data["content"].replace("\n", "").replace("\r", "")
+                    data["content"] = base64.b64decode(raw_content).decode("utf-8", errors="ignore")
+                except Exception:
+                    pass
+        return data
 
     except httpx.RequestError as error:
         print(
@@ -757,6 +767,8 @@ async def get_file_content(
             f"{type(error).__name__}: {error}"
         )
         return None
+
+
 async def get_default_branch(
     owner: str,
     repo: str,
