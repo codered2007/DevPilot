@@ -127,6 +127,7 @@ async def apply_code(
         "file_path": request.file_path,
         "action": request.action,
         "branch": result["branch"],
+        "base_branch": default_branch,
         "commit_sha": result["commit_sha"],
         "commit_url": result["commit_url"],
     }

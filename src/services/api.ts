@@ -20,11 +20,9 @@ export async function importRepository(
     `${API_URL}/repositories/import`,
     {
       method: "POST",
-
       headers: {
         "Content-Type": "application/json",
       },
-
       body: JSON.stringify({
         url,
       }),
@@ -90,16 +88,13 @@ export async function chatWithAI(
   message: string,
   history: ChatMessage[]
 ): Promise<ChatResponse> {
-
   const response = await fetch(
     `${API_URL}/chat/`,
     {
       method: "POST",
-
       headers: {
         "Content-Type": "application/json",
       },
-
       body: JSON.stringify({
         owner,
         repo,
@@ -149,11 +144,9 @@ export async function explainCode(
     `${API_URL}/explain/`,
     {
       method: "POST",
-
       headers: {
         "Content-Type": "application/json",
       },
-
       body: JSON.stringify({
         owner,
         repo,
@@ -193,16 +186,13 @@ export async function generateCodeAction(
     | "improve"
     | "refactor"
 ): Promise<CodeActionResponse> {
-
   const response = await fetch(
     `${API_URL}/code-actions/`,
     {
       method: "POST",
-
       headers: {
         "Content-Type": "application/json",
       },
-
       body: JSON.stringify({
         owner,
         repo,
@@ -233,6 +223,7 @@ export interface ApplyCodeResponse {
     | "improve"
     | "refactor";
   branch: string;
+  base_branch: string;
   commit_sha: string;
   commit_url: string;
 }
@@ -248,16 +239,13 @@ export async function applyCodeToGitHub(
     | "improve"
     | "refactor"
 ): Promise<ApplyCodeResponse> {
-
   const response = await fetch(
     `${API_URL}/apply-code/`,
     {
       method: "POST",
-
       headers: {
         "Content-Type": "application/json",
       },
-
       body: JSON.stringify({
         owner,
         repo,
@@ -269,19 +257,16 @@ export async function applyCodeToGitHub(
   );
 
   if (!response.ok) {
-
     let message =
       "Failed to apply code to GitHub.";
 
     try {
-
       const error =
         await response.json();
 
       if (error.detail) {
         message = error.detail;
       }
-
     } catch {
       // Keep the default error message.
     }
@@ -291,6 +276,7 @@ export async function applyCodeToGitHub(
 
   return response.json();
 }
+
 
 export interface PullRequestResponse {
   message: string;
@@ -304,34 +290,40 @@ export interface PullRequestResponse {
   base: string;
 }
 
+
 export async function createPullRequest(
   owner: string,
   repo: string,
   title: string,
   body: string,
   head: string,
-  base: string = "main"
+  base: string
 ): Promise<PullRequestResponse> {
-  const response = await fetch(`${API_URL}/pull-request/`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      owner,
-      repo,
-      title,
-      body,
-      head,
-      base,
-    }),
-  });
+  const response = await fetch(
+    `${API_URL}/pull-request/`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        owner,
+        repo,
+        title,
+        body,
+        head,
+        base,
+      }),
+    }
+  );
 
   if (!response.ok) {
-    let message = "Failed to create Pull Request.";
+    let message =
+      "Failed to create Pull Request.";
 
     try {
-      const error = await response.json();
+      const error =
+        await response.json();
 
       if (error.detail) {
         message = error.detail;
@@ -345,19 +337,31 @@ export async function createPullRequest(
 
   return response.json();
 }
+
+
 export interface ReviewFinding {
-  severity: "high" | "medium" | "low";
+  severity:
+    | "high"
+    | "medium"
+    | "low";
+
   title: string;
+
   description: string;
+
   file_path: string;
+
   line_start: number | null;
+
   line_end: number | null;
 }
+
 
 export interface RepositoryReviewResponse {
   summary: string;
   findings: ReviewFinding[];
 }
+
 
 export async function reviewRepository(
   owner: string,
@@ -373,10 +377,12 @@ export async function reviewRepository(
   );
 
   if (!response.ok) {
-    let message = "Failed to review repository.";
+    let message =
+      "Failed to review repository.";
 
     try {
-      const error = await response.json();
+      const error =
+        await response.json();
 
       if (error.detail) {
         message = error.detail;

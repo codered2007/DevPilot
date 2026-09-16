@@ -105,6 +105,7 @@ type CodeAction =
 
 interface GitHubApplyResult {
   branch: string;
+  base_branch: string;
   commit_sha: string;
   commit_url: string;
 }
@@ -474,6 +475,7 @@ function CodeViewer({
 
       setGithubResult({
         branch: result.branch,
+        base_branch: result.base_branch,
         commit_sha: result.commit_sha,
         commit_url: result.commit_url,
       });
@@ -559,7 +561,7 @@ function CodeViewer({
           `DevPilot: ${completedAction} ${fileName}`,
           `DevPilot generated a ${completedAction} change for \`${fileName}\`.\n\nThe changes were reviewed in DevPilot and committed to the \`${githubResult.branch}\` branch.`,
           githubResult.branch,
-          "main"
+          githubResult.base_branch
         );
 
 
@@ -937,6 +939,19 @@ function CodeViewer({
                 <span className="ml-2 font-mono text-zinc-300">
 
                   {githubResult.branch}
+
+                </span>
+
+              </p>
+
+
+              <p className="mt-1 text-sm text-zinc-400">
+
+                Base branch:
+
+                <span className="ml-2 font-mono text-zinc-300">
+
+                  {githubResult.base_branch}
 
                 </span>
 
