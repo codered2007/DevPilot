@@ -1,30 +1,12 @@
 import {
-  createContext,
-  useContext,
   useState,
   type ReactNode,
 } from "react";
 
-interface Repository {
-  owner: string;
-  repo: string;
-  name: string;
-  description: string;
-  stars: number;
-  forks: number;
-  language: string;
-  branch: string;
-}
-
-interface RepositoryContextType {
-  repository: Repository | null;
-  setRepository: (repository: Repository | null) => void;
-}
-
-const RepositoryContext =
-  createContext<RepositoryContextType | undefined>(
-    undefined
-  );
+import {
+  RepositoryContext,
+  type Repository,
+} from "./RepositoryContext";
 
 const STORAGE_KEY = "devpilot_repository";
 
@@ -81,16 +63,4 @@ export function RepositoryProvider({
       {children}
     </RepositoryContext.Provider>
   );
-}
-
-export function useRepository() {
-  const context = useContext(RepositoryContext);
-
-  if (!context) {
-    throw new Error(
-      "useRepository must be used inside RepositoryProvider"
-    );
-  }
-
-  return context;
 }

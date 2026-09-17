@@ -5,7 +5,7 @@ import { useNavigate } from "react-router-dom";
 import Button from "../ui/Button";
 import Input from "../ui/Input";
 import { importRepository } from "../../services/api";
-import { useRepository } from "../../context/RepositoryContext";
+import { useRepository } from "../../context/useRepository";
 
 function RepositoryImport() {
   const [url, setUrl] = useState("");

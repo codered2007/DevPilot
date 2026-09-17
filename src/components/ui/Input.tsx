@@ -1,10 +1,13 @@
 import type { InputHTMLAttributes } from "react";
 import { cn } from "../../lib/utils";
 
-interface InputProps
-  extends InputHTMLAttributes<HTMLInputElement> {}
+type InputProps =
+  InputHTMLAttributes<HTMLInputElement>;
 
-function Input({ className, ...props }: InputProps) {
+function Input({
+  className,
+  ...props
+}: InputProps) {
   return (
     <input
       className={cn(
@@ -15,4 +18,5 @@ function Input({ className, ...props }: InputProps) {
     />
   );
 }
+
 export default Input;

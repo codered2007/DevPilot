@@ -7,7 +7,7 @@ import FileTree from "../../components/repository/FileTree";
 import CodeViewer from "../../components/repository/CodeViewer";
 import AIChatPanel from "../../components/repository/AIChatPanel";
 
-import { useRepository } from "../../context/RepositoryContext";
+import { useRepository } from "../../context/useRepository";
 
 import {
   getRepositoryTree,
