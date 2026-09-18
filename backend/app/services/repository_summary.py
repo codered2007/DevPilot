@@ -6,7 +6,7 @@ from app.services.github_service import (
     get_repository_tree,
     get_file_content,
 )
-from app.services.ai_service import client
+from app.core.gemini_client import get_gemini_client
 
 
 def is_important_file(path: str) -> bool:
@@ -292,6 +292,7 @@ Selected Repository Files:
 """
 
     try:
+        client = get_gemini_client()
         response = client.models.generate_content(
             model="gemini-3.6-flash",
             contents=prompt,

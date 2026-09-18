@@ -1,13 +1,4 @@
-import os
-
-from dotenv import load_dotenv
-from google import genai
-
-load_dotenv()
-
-client = genai.Client(
-    api_key=os.getenv("GEMINI_API_KEY")
-)
+from app.core.gemini_client import get_gemini_client
 
 
 async def explain_code(
@@ -57,6 +48,8 @@ Important rules:
 - Reference specific functions or sections when useful.
 - Keep the explanation understandable to a developer.
 """
+
+    client = get_gemini_client()
 
     response = client.models.generate_content(
         model="gemini-3.5-flash",

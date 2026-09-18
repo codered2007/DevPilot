@@ -1,17 +1,6 @@
-import os
-
-from dotenv import load_dotenv
-from google import genai
+from app.core.gemini_client import get_gemini_client
 
 from app.services.vector_store import search_code
-
-
-load_dotenv()
-
-
-client = genai.Client(
-    api_key=os.getenv("GEMINI_API_KEY")
-)
 
 
 ACTION_INSTRUCTIONS = {
@@ -114,6 +103,8 @@ Important requirements:
 - Do not invent dependencies or APIs.
 - Keep the result compatible with the surrounding repository code.
 '''
+
+    client = get_gemini_client()
 
     response = client.models.generate_content(
         model="gemini-3.5-flash",

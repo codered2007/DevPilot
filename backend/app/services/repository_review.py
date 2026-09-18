@@ -1,15 +1,13 @@
 import base64
 import json
 
-from google import genai
+from app.core.gemini_client import get_gemini_client
 
 from app.services.github_service import (
     get_repository_tree,
     get_file_content,
 )
 
-
-client = genai.Client()
 
 MODEL_NAME = "gemini-3.6-flash"
 
@@ -237,6 +235,8 @@ Repository source code:
 """
 
     try:
+        client = get_gemini_client()
+
         response = await client.aio.models.generate_content(
             model=MODEL_NAME,
             contents=prompt,
