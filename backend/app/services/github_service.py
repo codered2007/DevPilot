@@ -21,10 +21,9 @@ if GITHUB_TOKEN:
 
 
 TIMEOUT = httpx.Timeout(
-    10.0,
-    connect=5.0,
+    30.0,
+    connect=10.0,
 )
-
 
 STOP_WORDS = {
     "the",

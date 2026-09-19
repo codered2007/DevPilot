@@ -2,14 +2,16 @@ import base64
 import json
 
 from app.core.gemini_client import get_gemini_client
-
 from app.services.github_service import (
-    get_repository_tree,
     get_file_content,
+    get_repository_tree,
 )
 
 
-MODEL_NAME = "gemini-3.6-flash"
+MODEL_NAMES = [
+    "gemini-3.6-flash",
+    "gemini-3.5-flash",
+]
 
 MAX_FILE_CHARS = 30000
 MAX_FILES = 40
@@ -40,17 +42,22 @@ SOURCE_EXTENSIONS = {
 }
 
 
-def is_source_file(path: str) -> bool:
+def should_include_file(path: str) -> bool:
+    """
+    Decide whether a repository file should be included
+    in the AI review context.
+    """
+
     parts = path.split("/")
 
-    if any(
-        directory in IGNORED_DIRECTORIES
-        for directory in parts
-    ):
-        return False
+    for part in parts:
+        if part.lower() in IGNORED_DIRECTORIES:
+            return False
+
+    path_lower = path.lower()
 
     return any(
-        path.lower().endswith(extension)
+        path_lower.endswith(extension)
         for extension in SOURCE_EXTENSIONS
     )
 
@@ -59,21 +66,33 @@ async def build_repository_context(
     owner: str,
     repo: str,
 ):
+    """
+    Build a repository context for the AI reviewer.
+
+    Returns:
+        tuple[str, list[str]]:
+            - repository context
+            - files whose contents could not be retrieved
+    """
+
     tree = await get_repository_tree(
         owner,
         repo,
     )
 
     if not tree:
-        return None
+        return "", []
 
-    files = tree.get("tree", [])
+    files = tree.get(
+        "tree",
+        [],
+    )
 
     source_files = [
-        item["path"]
+        item
         for item in files
         if item.get("type") == "blob"
-        and is_source_file(
+        and should_include_file(
             item.get("path", "")
         )
     ]
@@ -81,35 +100,60 @@ async def build_repository_context(
     source_files = source_files[:MAX_FILES]
 
     context_parts = []
+    unavailable_files = []
 
-    for path in source_files:
-        file_data = await get_file_content(
-            owner,
-            repo,
-            path,
+    for item in source_files:
+        path = item.get(
+            "path",
+            "",
         )
 
-        if not file_data:
+        try:
+            file_data = await get_file_content(
+                owner,
+                repo,
+                path,
+            )
+        except Exception as exc:
+            print(
+                f"GitHub file request failed: "
+                f"{path} — {type(exc).__name__}: {exc}"
+            )
+
+            unavailable_files.append(path)
             continue
 
-        content = file_data.get("content")
+        if not file_data:
+            unavailable_files.append(path)
+            continue
 
-        if not content:
+        encoded_content = file_data.get(
+            "content",
+            "",
+        )
+
+        if not encoded_content:
+            unavailable_files.append(path)
             continue
 
         try:
             decoded = base64.b64decode(
-                content
+                encoded_content
             ).decode(
                 "utf-8",
                 errors="ignore",
             )
-
         except Exception as exc:
             print(
-                f"Failed to decode {path}:",
-                exc,
+                f"Unable to decode file: "
+                f"{path} — {exc}"
             )
+
+            unavailable_files.append(path)
+            continue
+
+        if not decoded.strip():
+            unavailable_files.append(path)
             continue
 
         truncated = False
@@ -117,30 +161,31 @@ async def build_repository_context(
         if len(decoded) > MAX_FILE_CHARS:
             decoded = (
                 decoded[:MAX_FILE_CHARS]
-                + "\n\n"
-                "[FILE TRUNCATED FOR REVIEW]"
             )
-
             truncated = True
 
         file_header = f"FILE: {path}"
 
         if truncated:
             file_header += (
-                "\nNOTE: This file was truncated. "
-                "Do not report syntax errors caused "
-                "only by the truncation."
+                "\nNOTE: This file was truncated "
+                f"to {MAX_FILE_CHARS} characters."
             )
 
         context_parts.append(
-            f"{file_header}\n{decoded}"
+            f"{file_header}\n"
+            "```text\n"
+            f"{decoded}\n"
+            "```"
         )
 
-    if not context_parts:
-        return None
-
-    return "\n\n---\n\n".join(
+    context = "\n\n---\n\n".join(
         context_parts
+    )
+
+    return (
+        context,
+        unavailable_files,
     )
 
 
@@ -148,99 +193,168 @@ async def review_repository(
     owner: str,
     repo: str,
 ):
-    context = await build_repository_context(
-        owner,
-        repo,
+    """
+    Analyze a GitHub repository and return
+    structured code-review findings.
+    """
+
+    context, unavailable_files = (
+        await build_repository_context(
+            owner,
+            repo,
+        )
     )
 
     if not context:
+        print(
+            "Repository review has no "
+            "available source files."
+        )
+
         return None
+
+    unavailable_section = (
+        "\n".join(
+            f"- {path}"
+            for path in unavailable_files
+        )
+        if unavailable_files
+        else "None"
+    )
 
     prompt = f"""
 You are an expert software engineer performing
 a code review of a GitHub repository.
 
-Review the provided repository source code.
+Your job is to identify real, actionable,
+evidence-based problems in the provided source code.
 
-Look for real issues involving:
-
-- bugs
-- incorrect logic
-- missing error handling
-- security problems
-- bad practices
-- maintainability problems
-- performance problems
-- architectural issues
+Repository:
+{owner}/{repo}
 
 IMPORTANT RULES:
 
 1. Only report issues that are supported by
-   the code you were given.
+   the provided repository content.
 
-2. Do not invent files, functions, or code.
+2. The repository tree may contain files whose
+   contents could not be retrieved.
 
-3. Do not report a syntax error merely because
-   a file was truncated in the review context.
+3. The following files were unavailable:
 
-4. Some large files may contain the marker:
-   [FILE TRUNCATED FOR REVIEW]
+{unavailable_section}
 
-   If you see this marker, do not assume the
-   original file is syntactically invalid.
+4. NEVER claim that an unavailable file does
+   not exist.
 
-5. Line numbers must only be provided when they
-   can be determined reliably from the provided
-   source.
+5. NEVER infer the contents, imports, functions,
+   classes, routes, behavior, or dependencies
+   of an unavailable file.
 
-6. If you are uncertain whether something is a
-   real issue, do not report it.
+6. Do not report an issue that depends on the
+   contents of an unavailable file.
+
+7. Do not assume that a file is missing merely
+   because it is not included in the provided
+   source context.
+
+8. Do not report syntax errors caused by the
+   review context being truncated.
+
+9. Only provide line numbers when they can be
+   determined reliably from the provided code.
+
+10. If you are uncertain whether something is
+    actually a problem, do not report it.
+
+11. Focus on meaningful engineering issues such as:
+    - bugs
+    - incorrect logic
+    - security problems
+    - broken API usage
+    - incorrect async/sync behavior
+    - data handling problems
+    - error handling problems
+    - performance problems
+    - reliability issues
+    - maintainability issues
+
+12. Do not report stylistic preferences as bugs.
+
+13. Do not invent runtime behavior.
+
+14. Do not assume external configuration values
+    unless they are visible in the repository.
+
+15. Do not duplicate the same issue across
+    multiple findings.
+
+16. Findings must refer only to files whose
+    contents are actually present below.
 
 Return ONLY valid JSON.
 
-Use exactly this structure:
+The JSON must have this structure:
 
 {{
-  "summary": "Short overall assessment",
+  "summary": "Short overall assessment of the repository.",
   "findings": [
     {{
-      "severity": "high",
+      "severity": "HIGH",
       "title": "Short issue title",
-      "description": "Clear explanation of the issue",
+      "description": "Clear explanation of the problem.",
       "file_path": "path/to/file.py",
-      "line_start": 1,
-      "line_end": 5
+      "line_start": 10,
+      "line_end": 20,
+      "recommendation": "Specific recommendation for fixing it."
     }}
   ]
 }}
 
-Severity must be exactly one of:
+Allowed severity values:
 
-high
-medium
-low
+- HIGH
+- MEDIUM
+- LOW
 
-If line numbers cannot be determined reliably,
-use null for line_start and line_end.
+If no meaningful issues are found, return:
 
-Do not include markdown.
+{{
+  "summary": "No significant issues were identified from the available source files.",
+  "findings": []
+}}
 
-Do not include ```json.
-
-Do not include explanations outside the JSON.
-
-Repository source code:
+Repository source:
 
 {context}
 """
 
     try:
         client = get_gemini_client()
-
-        response = await client.aio.models.generate_content(
-            model=MODEL_NAME,
-            contents=prompt,
-        )
+        response = None
+        for model_name in MODEL_NAMES:
+            try:
+                print(
+                    f"Trying Gemini model: {model_name}"
+                )
+                response = await client.aio.models.generate_content(
+                    model=model_name,
+                    contents=prompt,
+                )
+                print(
+                    f"Gemini review succeeded with: "
+                    f"{model_name}"
+                )
+                break
+            except Exception as exc:
+                print(
+                    f"Gemini model failed: "
+                    f"{model_name} — {exc}"
+                )
+        if response is None:
+            raise RuntimeError(
+                "All Gemini review models are currently unavailable."
+            )
 
         text = response.text.strip()
 
@@ -249,7 +363,9 @@ Repository source code:
                 "```json",
                 "",
                 1,
-            ).replace(
+            )
+
+            text = text.replace(
                 "```",
                 "",
                 1,
@@ -262,6 +378,7 @@ Repository source code:
                 "Repository review returned "
                 "an unexpected format."
             )
+
             return None
 
         if "summary" not in result:
@@ -272,6 +389,12 @@ Repository source code:
         if "findings" not in result:
             result["findings"] = []
 
+        if not isinstance(
+            result["findings"],
+            list,
+        ):
+            result["findings"] = []
+
         return result
 
     except json.JSONDecodeError as exc:
@@ -280,6 +403,7 @@ Repository source code:
             "invalid JSON:",
             exc,
         )
+
         return None
 
     except Exception as exc:
@@ -287,4 +411,5 @@ Repository source code:
             "Repository review failed:",
             exc,
         )
+
         return None
