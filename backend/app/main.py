@@ -13,7 +13,9 @@ from app.api.pull_request import router as pull_request_router
 from app.api.repository_review import (
     router as repository_review_router,
 )
-
+from app.api.architecture_analysis import (
+    router as architecture_analysis_router,
+)
 
 app = FastAPI(
     title="DevPilot API",
@@ -44,6 +46,9 @@ app.include_router(apply_code_router)
 app.include_router(pull_request_router)
 app.include_router(
     repository_review_router
+)
+app.include_router(
+    architecture_analysis_router
 )
 
 @app.get("/")

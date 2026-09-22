@@ -1,17 +1,14 @@
 const API_URL = "http://127.0.0.1:8000";
 
-
 export interface ChatMessage {
   role: "user" | "assistant";
   content: string;
 }
 
-
 export interface ChatResponse {
   response: string;
   sources: string[];
 }
-
 
 export async function importRepository(
   url: string
@@ -38,7 +35,6 @@ export async function importRepository(
   return response.json();
 }
 
-
 export async function getRepositoryTree(
   owner: string,
   repo: string
@@ -57,7 +53,6 @@ export async function getRepositoryTree(
 
   return response.json();
 }
-
 
 export async function getFileContent(
   owner: string,
@@ -80,7 +75,6 @@ export async function getFileContent(
 
   return response.json();
 }
-
 
 export async function chatWithAI(
   owner: string,
@@ -113,7 +107,6 @@ export async function chatWithAI(
   return response.json();
 }
 
-
 export async function getRepositorySummary(
   owner: string,
   repo: string
@@ -132,7 +125,6 @@ export async function getRepositorySummary(
 
   return response.json();
 }
-
 
 export async function explainCode(
   owner: string,
@@ -165,7 +157,6 @@ export async function explainCode(
   return response.json();
 }
 
-
 export interface CodeActionResponse {
   original_code: string;
   modified_code: string;
@@ -174,7 +165,6 @@ export interface CodeActionResponse {
     | "improve"
     | "refactor";
 }
-
 
 export async function generateCodeAction(
   owner: string,
@@ -212,7 +202,6 @@ export async function generateCodeAction(
   return response.json();
 }
 
-
 export interface ApplyCodeResponse {
   message: string;
   owner: string;
@@ -227,7 +216,6 @@ export interface ApplyCodeResponse {
   commit_sha: string;
   commit_url: string;
 }
-
 
 export async function applyCodeToGitHub(
   owner: string,
@@ -277,7 +265,6 @@ export async function applyCodeToGitHub(
   return response.json();
 }
 
-
 export interface PullRequestResponse {
   message: string;
   owner: string;
@@ -289,7 +276,6 @@ export interface PullRequestResponse {
   head: string;
   base: string;
 }
-
 
 export async function createPullRequest(
   owner: string,
@@ -338,30 +324,22 @@ export async function createPullRequest(
   return response.json();
 }
 
-
 export interface ReviewFinding {
   severity:
     | "high"
     | "medium"
     | "low";
-
   title: string;
-
   description: string;
-
   file_path: string;
-
   line_start: number | null;
-
   line_end: number | null;
 }
-
 
 export interface RepositoryReviewResponse {
   summary: string;
   findings: ReviewFinding[];
 }
-
 
 export async function reviewRepository(
   owner: string,
@@ -379,6 +357,70 @@ export async function reviewRepository(
   if (!response.ok) {
     let message =
       "Failed to review repository.";
+
+    try {
+      const error =
+        await response.json();
+
+      if (error.detail) {
+        message = error.detail;
+      }
+    } catch {
+      // Keep the default error message.
+    }
+
+    throw new Error(message);
+  }
+
+  return response.json();
+}
+
+/*
+ * Repository Architecture Analysis
+ */
+
+export interface ArchitectureEntryPoint {
+  file: string;
+  reason: string;
+}
+
+export interface ArchitectureModule {
+  name: string;
+  paths: string[];
+  description: string;
+}
+
+export interface ArchitectureDependency {
+  source: string;
+  target: string;
+  type: string;
+}
+
+export interface ArchitectureAnalysisResponse {
+  summary: string;
+  entry_points: ArchitectureEntryPoint[];
+  modules: ArchitectureModule[];
+  dependencies: ArchitectureDependency[];
+  observations: string[];
+  unavailable_files: string[];
+}
+
+export async function analyzeRepositoryArchitecture(
+  owner: string,
+  repo: string
+): Promise<ArchitectureAnalysisResponse> {
+  const response = await fetch(
+    `${API_URL}/architecture-analysis/?owner=${encodeURIComponent(
+      owner
+    )}&repo=${encodeURIComponent(repo)}`,
+    {
+      method: "POST",
+    }
+  );
+
+  if (!response.ok) {
+    let message =
+      "Failed to analyze repository architecture.";
 
     try {
       const error =

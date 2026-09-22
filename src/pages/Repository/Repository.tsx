@@ -14,10 +14,12 @@ import {
   getFileContent,
   reviewRepository,
   generateCodeAction,
+  analyzeRepositoryArchitecture,
 } from "../../services/api";
 
 import type {
   RepositoryReviewResponse,
+  ArchitectureAnalysisResponse,
 } from "../../services/api";
 
 import { buildFileTree } from "../../utils/buildFileTree";
@@ -84,6 +86,15 @@ function Repository() {
     );
 
   const [reviewError, setReviewError] =
+    useState("");
+
+  const [architectureLoading, setArchitectureLoading] =
+    useState(false);
+
+  const [architectureResult, setArchitectureResult] =
+    useState<ArchitectureAnalysisResponse | null>(null);
+
+  const [architectureError, setArchitectureError] =
     useState("");
 
 
@@ -736,6 +747,37 @@ const persistentFindings =
    * Open the file associated with a
    * review finding.
    */
+  async function handleAnalyzeArchitecture() {
+    if (!repository) return;
+
+    try {
+      setArchitectureLoading(true);
+      setArchitectureError("");
+
+      const result =
+        await analyzeRepositoryArchitecture(
+          repository.owner,
+          repository.repo
+        );
+
+      setArchitectureResult(result);
+    } catch (err) {
+      console.error(
+        "Failed to analyze repository architecture:",
+        err
+      );
+
+      setArchitectureError(
+        err instanceof Error
+          ? err.message
+          : "Failed to analyze repository architecture."
+      );
+    } finally {
+      setArchitectureLoading(false);
+    }
+  }
+
+
   async function handleReviewFinding(
     filePath: string,
     lineStart: number | null
@@ -1077,6 +1119,137 @@ const persistentFindings =
 
         )}
 
+      </div>
+
+
+      {/* Repository Architecture */}
+
+      <div className="rounded-3xl border border-zinc-800 bg-zinc-900 p-6">
+
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+
+          <div>
+            <div className="flex items-center gap-2">
+              <Sparkles size={20} />
+              <h2 className="text-xl font-bold">Architecture Analysis</h2>
+            </div>
+            <p className="mt-2 text-sm text-zinc-400">
+              Analyze the repository structure, modules, entry points, and detected dependencies.
+            </p>
+          </div>
+
+          <button type="button" onClick={handleAnalyzeArchitecture} disabled={architectureLoading}
+            className="flex shrink-0 items-center justify-center gap-2 rounded-lg bg-zinc-100 px-5 py-2.5 text-zinc-900 transition hover:bg-white disabled:cursor-not-allowed disabled:opacity-50">
+            {architectureLoading ? (<>
+              <RefreshCw size={18} className="animate-spin" /> Analyzing...
+            </>) : (<>
+              <Sparkles size={18} /> Analyze Architecture
+            </>)}
+          </button>
+        </div>
+
+        {architectureError && (
+          <div className="mt-5 rounded-2xl border border-red-700 bg-red-900/20 p-5 text-red-400">
+            {architectureError}
+          </div>
+        )}
+
+        {architectureResult && (
+          <div className="mt-6 space-y-5">
+            <div className="rounded-2xl border border-zinc-800 bg-zinc-950 p-5">
+              <div className="flex items-center gap-2"><Sparkles size={17} /><h3 className="font-semibold">Architecture Summary</h3></div>
+              <p className="mt-3 leading-7 text-zinc-300">{architectureResult.summary}</p>
+            </div>
+
+            {architectureResult.entry_points.length > 0 && (
+              <div className="rounded-2xl border border-zinc-800 bg-zinc-950 p-5">
+                <h3 className="font-semibold">Entry Points</h3>
+                <div className="mt-4 space-y-2">
+                  {architectureResult.entry_points.map((entry) => (
+                    <button key={entry.file} type="button" onClick={() => handleSelectFile(entry.file)}
+                      className="w-full rounded-xl border border-zinc-800 bg-zinc-900 p-4 text-left transition hover:border-zinc-600 hover:bg-zinc-800">
+                      <p className="font-mono text-sm text-zinc-200">{entry.file}</p>
+                      <p className="mt-1 text-sm text-zinc-500">{entry.reason}</p>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {architectureResult.modules.length > 0 && (
+              <div className="rounded-2xl border border-zinc-800 bg-zinc-950 p-5">
+                <h3 className="font-semibold">Modules</h3>
+                <div className="mt-4 grid gap-4 lg:grid-cols-2">
+                  {architectureResult.modules.map((module) => (
+                    <div key={module.name} className="rounded-xl border border-zinc-800 bg-zinc-900 p-4">
+                      <h4 className="font-medium text-zinc-200">{module.name}</h4>
+                      <p className="mt-2 text-sm leading-6 text-zinc-400">{module.description}</p>
+                      <div className="mt-3 space-y-1">
+                        {module.paths.map((path) => {
+                          const isLocalFile = files.some((file) => file.path === path);
+                          return isLocalFile ? (
+                            <button key={path} type="button" onClick={() => handleSelectFile(path)} className="block w-full text-left font-mono text-xs text-zinc-500 transition hover:text-zinc-200">{path}</button>
+                          ) : (
+                            <p key={path} className="font-mono text-xs text-zinc-600">{path}</p>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {architectureResult.dependencies.length > 0 && (
+              <div className="rounded-2xl border border-zinc-800 bg-zinc-950 p-5">
+                <h3 className="font-semibold">Dependencies</h3>
+                <div className="mt-4 space-y-2">
+                  {architectureResult.dependencies.map((dependency, index) => {
+                    const sourceExists = files.some((file) => file.path === dependency.source);
+                    const targetExists = files.some((file) => file.path === dependency.target);
+                    return (
+                      <div key={`${dependency.source}-${dependency.target}-${index}`} className="flex flex-col gap-2 rounded-xl border border-zinc-800 bg-zinc-900 p-4 sm:flex-row sm:items-center">
+                        {sourceExists ? (
+                          <button type="button" onClick={() => handleSelectFile(dependency.source)} className="min-w-0 flex-1 truncate text-left font-mono text-xs text-zinc-300 hover:text-white">{dependency.source}</button>
+                        ) : <span className="min-w-0 flex-1 truncate font-mono text-xs text-zinc-500">{dependency.source}</span>}
+                        <span className="text-xs text-zinc-600">→</span>
+                        {targetExists ? (
+                          <button type="button" onClick={() => handleSelectFile(dependency.target)} className="min-w-0 flex-1 truncate text-left font-mono text-xs text-zinc-300 hover:text-white">{dependency.target}</button>
+                        ) : <span className="min-w-0 flex-1 truncate font-mono text-xs text-zinc-500">{dependency.target}</span>}
+                        <span className="rounded-full bg-zinc-800 px-2.5 py-1 text-[10px] uppercase tracking-wide text-zinc-500">{dependency.type}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {architectureResult.observations.length > 0 && (
+              <div className="rounded-2xl border border-zinc-800 bg-zinc-950 p-5">
+                <h3 className="font-semibold">Architectural Observations</h3>
+                <div className="mt-4 space-y-3">
+                  {architectureResult.observations.map((observation, index) => (
+                    <div key={index} className="rounded-xl border border-zinc-800 bg-zinc-900 p-4">
+                      <p className="text-sm leading-6 text-zinc-300">{observation}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {architectureResult.unavailable_files.length > 0 && (
+              <div className="rounded-2xl border border-yellow-900/40 bg-yellow-950/10 p-5">
+                <h3 className="font-semibold text-yellow-400">Files Not Available</h3>
+                <p className="mt-2 text-sm text-zinc-500">These files could not be retrieved during the architecture analysis.</p>
+                <div className="mt-3 space-y-1">
+                  {architectureResult.unavailable_files.map((path) => (
+                    <p key={path} className="font-mono text-xs text-zinc-500">{path}</p>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
 
