@@ -1,9 +1,10 @@
 import ast
+import asyncio
 import base64
 import json
 import os
+import posixpath
 import re
-import asyncio
 
 from app.core.gemini_client import get_gemini_client
 from app.services.github_service import (
@@ -83,7 +84,14 @@ def extract_python_imports(
 
         elif isinstance(node, ast.ImportFrom):
             if node.module:
-                imports.append(node.module)
+                prefix = "." * node.level
+                imports.append(
+                    f"{prefix}{node.module}"
+                )
+            elif node.level:
+                imports.append(
+                    "." * node.level
+                )
 
     return sorted(set(imports))
 
@@ -134,6 +142,337 @@ def extract_imports(
         )
 
     return []
+
+
+def build_file_index(
+    files: list[dict],
+) -> dict[str, str]:
+    """
+    Build a normalized lookup table containing
+    repository source paths.
+
+    Example:
+
+        src/pages/Repository/Repository.tsx
+        -> src/pages/Repository/Repository.tsx
+    """
+
+    return {
+        path.replace("\\", "/"): path
+        for file in files
+        for path in [file["path"].replace("\\", "/")]
+    }
+
+
+def build_extension_variants(
+    path: str,
+) -> list[str]:
+    """
+    Generate possible source-file variants for an
+    imported path.
+
+    Example:
+
+        ./Repository
+
+    becomes candidates such as:
+
+        Repository
+        Repository.tsx
+        Repository.ts
+        Repository.jsx
+        Repository.js
+        Repository/index.tsx
+        ...
+    """
+
+    path = path.replace("\\", "/")
+
+    extension = posixpath.splitext(path)[1]
+
+    if extension:
+        return [path]
+
+    variants = [path]
+
+    for source_extension in [
+        ".tsx",
+        ".ts",
+        ".jsx",
+        ".js",
+        ".py",
+        ".java",
+        ".go",
+        ".rs",
+        ".cpp",
+        ".c",
+    ]:
+        variants.append(
+            f"{path}{source_extension}"
+        )
+
+    for source_extension in [
+        ".tsx",
+        ".ts",
+        ".jsx",
+        ".js",
+        ".py",
+    ]:
+        variants.append(
+            f"{path}/index{source_extension}"
+        )
+
+    return variants
+
+
+def resolve_relative_import(
+    source_path: str,
+    import_path: str,
+    file_index: dict[str, str],
+) -> str | None:
+    """
+    Resolve JavaScript/TypeScript-style relative
+    imports against repository files.
+    """
+
+    source_directory = posixpath.dirname(
+        source_path
+    )
+
+    resolved_base = posixpath.normpath(
+        posixpath.join(
+            source_directory,
+            import_path,
+        )
+    )
+
+    for candidate in build_extension_variants(
+        resolved_base
+    ):
+        normalized = candidate.lstrip("./")
+
+        if normalized in file_index:
+            return file_index[normalized]
+
+    return None
+
+
+def resolve_python_import(
+    source_path: str,
+    import_path: str,
+    file_index: dict[str, str],
+) -> str | None:
+    """
+    Resolve Python imports against repository files.
+
+    Relative imports such as:
+
+        ..services.ai_service
+
+    are resolved relative to the importing file.
+
+    Absolute imports such as:
+
+        app.services.ai_service
+
+    are matched against repository paths.
+    """
+
+    normalized_import = import_path.strip()
+
+    if not normalized_import:
+        return None
+
+    source_directory = posixpath.dirname(
+        source_path
+    )
+
+    if normalized_import.startswith("."):
+        dot_count = len(
+            normalized_import
+            - normalized_import.lstrip(".")
+        )
+
+        module_name = normalized_import[
+            dot_count:
+        ].replace(".", "/")
+
+        base_directory = source_directory
+
+        for _ in range(
+            max(0, dot_count - 1)
+        ):
+            base_directory = posixpath.dirname(
+                base_directory
+            )
+
+        resolved_base = posixpath.normpath(
+            posixpath.join(
+                base_directory,
+                module_name,
+            )
+        )
+
+        candidates = [
+            resolved_base,
+            f"{resolved_base}.py",
+            f"{resolved_base}/__init__.py",
+        ]
+
+        for candidate in candidates:
+            candidate = candidate.lstrip("./")
+
+            if candidate in file_index:
+                return file_index[candidate]
+
+        return None
+
+    module_path = normalized_import.replace(
+        ".",
+        "/",
+    )
+
+    candidates = [
+        module_path,
+        f"{module_path}.py",
+        f"{module_path}/__init__.py",
+    ]
+
+    for candidate in candidates:
+        if candidate in file_index:
+            return file_index[candidate]
+
+    return None
+
+
+def resolve_import(
+    source_path: str,
+    import_path: str,
+    file_index: dict[str, str],
+) -> str:
+    """
+    Resolve an import to a repository file when
+    possible.
+
+    If it is an external dependency, preserve the
+    original import name.
+    """
+
+    normalized_source = source_path.replace(
+        "\\",
+        "/",
+    )
+
+    normalized_import = import_path.strip()
+
+    extension = posixpath.splitext(
+        normalized_source
+    )[1].lower()
+
+    if extension == ".py":
+        resolved = resolve_python_import(
+            normalized_source,
+            normalized_import,
+            file_index,
+        )
+    elif extension in {
+        ".js",
+        ".jsx",
+        ".ts",
+        ".tsx",
+    }:
+        if normalized_import.startswith("."):
+            resolved = resolve_relative_import(
+                normalized_source,
+                normalized_import,
+                file_index,
+            )
+        else:
+            resolved = None
+
+            # Also support common local aliases such
+            # as "@/components/Button".
+            alias_candidates = [
+                normalized_import,
+                normalized_import.lstrip("@/"),
+            ]
+
+            for alias_candidate in alias_candidates:
+                for candidate in build_extension_variants(
+                    alias_candidate
+                ):
+                    candidate = candidate.lstrip("./")
+
+                    if candidate in file_index:
+                        resolved = file_index[
+                            candidate
+                        ]
+                        break
+
+                if resolved:
+                    break
+    else:
+        resolved = None
+
+    return resolved or normalized_import
+
+
+def build_deterministic_dependencies(
+    files: list[dict],
+) -> list[dict]:
+    """
+    Build deterministic dependency relationships
+    directly from repository source code.
+
+    Gemini is not involved in this step.
+    """
+
+    file_index = build_file_index(files)
+
+    dependencies = set()
+
+    for file in files:
+        source = file["path"].replace(
+            "\\",
+            "/",
+        )
+
+        imports = extract_imports(
+            source,
+            file["content"],
+        )
+
+        for import_path in imports:
+            target = resolve_import(
+                source,
+                import_path,
+                file_index,
+            )
+
+            if not target:
+                continue
+
+            if target == source:
+                continue
+
+            dependencies.add(
+                (
+                    source,
+                    target,
+                    "import",
+                )
+            )
+
+    return [
+        {
+            "source": source,
+            "target": target,
+            "type": dependency_type,
+        }
+        for source, target, dependency_type in sorted(
+            dependencies
+        )
+    ]
 
 
 def build_dependency_context(
@@ -194,7 +533,13 @@ async def collect_repository_files(
         )
     ]
 
-    source_files = source_files[:MAX_FILES]
+    source_files = sorted(
+        source_files,
+        key=lambda item: item.get(
+            "path",
+            "",
+        ),
+    )[:MAX_FILES]
 
     available_files = []
     unavailable_files = []
@@ -323,9 +668,13 @@ IMPORTANT RULES:
 7. Clearly distinguish detected dependencies from
    architectural observations.
 
-8. If evidence is insufficient, omit the claim.
+8. The dependency graph is generated separately
+   from static source-code import analysis.
+   Do NOT generate or modify dependency relationships.
 
-Return ONLY valid JSON.
+9. If evidence is insufficient, omit the claim.
+
+10. Return ONLY valid JSON.
 
 Use exactly this structure:
 
@@ -342,13 +691,6 @@ Use exactly this structure:
       "name": "Module name",
       "paths": ["path/to/file"],
       "description": "What this module appears to contain."
-    }}
-  ],
-  "dependencies": [
-    {{
-      "source": "path/to/source",
-      "target": "path/to/target-or-module",
-      "type": "import"
     }}
   ],
   "observations": [
@@ -369,11 +711,9 @@ async def generate_architecture_response(
     last_error = None
 
     for model_name in MODEL_NAMES:
-
         for attempt in range(
             MODEL_RETRIES + 1
         ):
-
             try:
                 print(
                     f"Trying Gemini architecture model: "
@@ -424,7 +764,6 @@ async def generate_architecture_response(
                     await asyncio.sleep(
                         RETRY_DELAY_SECONDS
                     )
-
                 else:
                     break
 
@@ -461,6 +800,12 @@ async def analyze_repository_architecture(
 
     dependency_context = (
         build_dependency_context(files)
+    )
+
+    deterministic_dependencies = (
+        build_deterministic_dependencies(
+            files
+        )
     )
 
     prompt = build_architecture_prompt(
@@ -516,13 +861,15 @@ async def analyze_repository_architecture(
         )
 
         result.setdefault(
-            "dependencies",
+            "observations",
             [],
         )
 
-        result.setdefault(
-            "observations",
-            [],
+        # Dependencies are intentionally taken from
+        # deterministic static analysis instead of
+        # Gemini's response.
+        result["dependencies"] = (
+            deterministic_dependencies
         )
 
         result["unavailable_files"] = (

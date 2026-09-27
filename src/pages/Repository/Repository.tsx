@@ -6,6 +6,7 @@ import RepositoryStats from "../../components/repository/RepositoryStats";
 import FileTree from "../../components/repository/FileTree";
 import CodeViewer from "../../components/repository/CodeViewer";
 import AIChatPanel from "../../components/repository/AIChatPanel";
+import ArchitectureGraph from "../../components/ArchitectureGraph";
 
 import { useRepository } from "../../context/useRepository";
 
@@ -1199,6 +1200,12 @@ const persistentFindings =
                 </div>
               </div>
             )}
+            <div className="rounded-2xl border border-zinc-800 bg-zinc-950 p-5">
+  <ArchitectureGraph
+    dependencies={architectureResult.dependencies}
+    onFileSelect={handleSelectFile}
+  />
+</div>
 
             {architectureResult.dependencies.length > 0 && (
               <div className="rounded-2xl border border-zinc-800 bg-zinc-950 p-5">
