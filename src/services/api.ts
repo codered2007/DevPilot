@@ -375,7 +375,7 @@ export async function reviewRepository(
   return response.json();
 }
 
-/*
+/**
  * Repository Architecture Analysis
  */
 
@@ -421,6 +421,69 @@ export async function analyzeRepositoryArchitecture(
   if (!response.ok) {
     let message =
       "Failed to analyze repository architecture.";
+
+    try {
+      const error =
+        await response.json();
+
+      if (error.detail) {
+        message = error.detail;
+      }
+    } catch {
+      // Keep the default error message.
+    }
+
+    throw new Error(message);
+  }
+
+  return response.json();
+}
+
+/**
+ * Dependency Analysis
+ */
+
+export interface DependencyManifest {
+  path: string;
+  ecosystem: string;
+}
+
+export interface Dependency {
+  name: string;
+  version: string;
+  scope: string;
+  ecosystem: string;
+  manifest: string;
+}
+
+export interface DependencyAnalysisSummary {
+  manifest_count: number;
+  dependency_count: number;
+  ecosystems: string[];
+}
+
+export interface DependencyAnalysisResponse {
+  manifests: DependencyManifest[];
+  dependencies: Dependency[];
+  summary: DependencyAnalysisSummary;
+}
+
+export async function analyzeRepositoryDependencies(
+  owner: string,
+  repo: string
+): Promise<DependencyAnalysisResponse> {
+  const response = await fetch(
+    `${API_URL}/dependency-analysis/?owner=${encodeURIComponent(
+      owner
+    )}&repo=${encodeURIComponent(repo)}`,
+    {
+      method: "POST",
+    }
+  );
+
+  if (!response.ok) {
+    let message =
+      "Failed to analyze repository dependencies.";
 
     try {
       const error =

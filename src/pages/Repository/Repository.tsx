@@ -10,6 +10,8 @@ import ArchitectureGraph from "../../components/ArchitectureGraph";
 
 import { useRepository } from "../../context/useRepository";
 
+import DependencyAnalysis from "../../components/repository/DependencyAnalysis";
+
 import {
   getRepositoryTree,
   getFileContent,
@@ -1258,6 +1260,11 @@ const persistentFindings =
           </div>
         )}
       </div>
+
+      <DependencyAnalysis
+        owner={repository.owner}
+        repo={repository.repo}
+      />
 
 
       {loading && (
