@@ -37,7 +37,7 @@ import {
   Sparkles,
   Wrench,
 } from "lucide-react";
-
+import SecurityAnalysis from "../../components/repository/SecurityAnalysis";
 
 interface FileItem {
   path: string;
@@ -1265,6 +1265,10 @@ const persistentFindings =
         owner={repository.owner}
         repo={repository.repo}
       />
+      <SecurityAnalysis
+  owner={repository.owner}
+  repo={repository.repo}
+/>
 
 
       {loading && (

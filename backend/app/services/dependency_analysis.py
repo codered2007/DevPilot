@@ -19,6 +19,9 @@ MANIFEST_NAMES = {
     "cargo.toml",
 }
 
+LOCKFILE_NAMES = {
+    "package-lock.json",
+}
 
 def get_manifest_type(path: str) -> str | None:
     filename = path.rsplit("/", 1)[-1].lower()
@@ -99,7 +102,70 @@ def parse_package_json(
             )
 
     return dependencies
+def parse_package_lock_json(
+    content: str,
+) -> dict[str, str]:
+    try:
+        data = json.loads(content)
+    except (
+        json.JSONDecodeError,
+        TypeError,
+    ):
+        return {}
 
+    if data.get("lockfileVersion") != 3:
+        return {}
+
+    packages = data.get(
+        "packages",
+        {},
+    )
+
+    if not isinstance(
+        packages,
+        dict,
+    ):
+        return {}
+
+    resolved_versions: dict[str, str] = {}
+
+    for package_path, package_data in packages.items():
+        if not isinstance(
+            package_data,
+            dict,
+        ):
+            continue
+
+        if not package_path.startswith(
+            "node_modules/"
+        ):
+            continue
+
+        package_name = package_path[
+            len("node_modules/"):
+        ]
+
+        if (
+            "/node_modules/"
+            in package_name
+        ):
+            continue
+
+        version = package_data.get(
+            "version"
+        )
+
+        if not isinstance(
+            version,
+            str,
+        ):
+            continue
+
+        resolved_versions[
+            package_name
+        ] = version
+
+    return resolved_versions
 
 def parse_requirements_txt(
     content: str,
@@ -756,6 +822,52 @@ async def analyze_repository_dependencies(
             "path"
         ].lower()
     )
+    lockfiles = {}
+
+    for item in tree.get(
+        "tree",
+        [],
+    ):
+        if item.get(
+            "type"
+        ) != "blob":
+            continue
+
+        path = item.get(
+            "path",
+            "",
+        )
+
+        filename = path.rsplit(
+            "/",
+            1,
+        )[-1].lower()
+
+        if filename not in LOCKFILE_NAMES:
+            continue
+
+        file_data = await get_file_content(
+            owner,
+            repo,
+            path,
+        )
+
+        if not file_data:
+            continue
+
+        content = decode_github_content(
+            file_data
+        )
+
+        if not content:
+            continue
+
+        if filename == "package-lock.json":
+            lockfiles[path] = (
+                parse_package_lock_json(
+                    content
+                )
+            )
 
     dependencies = []
 
@@ -785,6 +897,47 @@ async def analyze_repository_dependencies(
             dependency["manifest"] = (
                 manifest["path"]
             )
+
+            if (
+                manifest["ecosystem"]
+                == "npm"
+            ):
+                manifest_directory = (
+                    manifest["path"].rsplit(
+                        "/",
+                        1,
+                    )[0]
+                    if "/"
+                    in manifest["path"]
+                    else ""
+                )
+
+                lockfile_path = (
+                    f"{manifest_directory}/package-lock.json"
+                    if manifest_directory
+                    else "package-lock.json"
+                )
+
+                resolved_versions = (
+                    lockfiles.get(
+                        lockfile_path,
+                        {},
+                    )
+                )
+
+                resolved_version = (
+                    resolved_versions.get(
+                        dependency.get(
+                            "name",
+                            "",
+                        )
+                    )
+                )
+
+                if resolved_version:
+                    dependency[
+                        "resolved_version"
+                    ] = resolved_version
 
         dependencies.extend(
             parsed

@@ -19,6 +19,9 @@ from app.api.architecture_analysis import (
 from app.api.dependency_analysis import (
     router as dependency_analysis_router,
 )
+from app.api.security_analysis import (
+    router as security_analysis_router,
+)
 app = FastAPI(
     title="DevPilot API",
     version="1.0.0",
@@ -54,6 +57,9 @@ app.include_router(
 )
 app.include_router(
     dependency_analysis_router
+)
+app.include_router(
+    security_analysis_router
 )
 @app.get("/")
 def root():
