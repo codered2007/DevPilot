@@ -9,6 +9,9 @@ import Dashboard from "../pages/Dashboard/Dashboard";
 import Repository from "../pages/Repository/Repository";
 import Settings from "../pages/Settings/Settings";
 import NotFound from "../pages/NotFound/NotFound";
+import Features from "../pages/Features/Features";
+import About from "../pages/About/About";
+import ProtectedRoute from "../components/auth/ProtectedRoute";
 
 export const router = createBrowserRouter([
   {
@@ -20,6 +23,14 @@ export const router = createBrowserRouter([
         element: <Landing />,
       },
       {
+        path: "/features",
+        element: <Features />,
+      },
+      {
+        path: "/about",
+        element: <About />,
+      },
+      {
         path: "/login",
         element: <Login />,
       },
@@ -27,19 +38,22 @@ export const router = createBrowserRouter([
   },
 
   {
-    path: "/dashboard",
-    element: <DashboardLayout />,
+    element: (
+      <ProtectedRoute>
+        <DashboardLayout />
+      </ProtectedRoute>
+    ),
     children: [
       {
-        index: true,
+        path: "/dashboard",
         element: <Dashboard />,
       },
       {
-        path: "repository",
+        path: "/dashboard/repository",
         element: <Repository />,
       },
       {
-        path: "settings",
+        path: "/dashboard/settings",
         element: <Settings />,
       },
     ],

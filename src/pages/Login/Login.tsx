@@ -1,7 +1,14 @@
+import { useState } from "react";
 import { FaGithub } from "react-icons/fa";
-import Button from "../../components/ui/Button";
 
 function Login() {
+  const [loading, setLoading] = useState(false);
+
+  const handleGithubLogin = () => {
+    setLoading(true);
+    window.location.href = "http://localhost:8000/auth/github";
+  };
+
   return (
     <div className="flex min-h-screen items-center justify-center bg-[#0B0D10] px-6">
       <div className="w-full max-w-md rounded-2xl border border-zinc-800 bg-zinc-900 p-8">
@@ -13,14 +20,27 @@ function Login() {
           Sign in to start analyzing repositories with AI.
         </p>
 
-
-<Button className="mt-8 flex w-full items-center justify-center gap-2">
-  <FaGithub size={20} />
-  Continue with GitHub
-</Button>
+        <button
+          type="button"
+          onClick={handleGithubLogin}
+          disabled={loading}
+          className="mt-8 flex w-full items-center justify-center gap-2 rounded-lg bg-blue-600 px-5 py-2.5 text-sm font-medium text-white transition-colors hover:bg-blue-500 disabled:pointer-events-none disabled:opacity-70"
+        >
+          {loading ? (
+            <>
+              <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white" />
+              Connecting to GitHub...
+            </>
+          ) : (
+            <>
+              <FaGithub size={20} />
+              Continue with GitHub
+            </>
+          )}
+        </button>
 
         <p className="mt-6 text-center text-sm text-zinc-500">
-          More providers coming soon.
+          Sign in securely with your GitHub account.
         </p>
       </div>
     </div>

@@ -62,16 +62,23 @@ function TreeItem({
 
     return (
       <button
+        type="button"
         onClick={() => onSelectFile(node.path)}
-        style={{ paddingLeft: `${level * 16 + 8}px` }}
-        className={`flex w-full items-center gap-2 rounded-lg py-2 text-left transition
-          ${
-            active
-              ? "bg-blue-600 text-white"
-              : "hover:bg-zinc-800 text-zinc-300"
-          }`}
+        style={{ paddingLeft: `${level * 14 + 10}px` }}
+        className={`group flex w-full items-center gap-2 rounded-md py-1.5 pr-2 text-left text-sm transition-colors ${
+          active
+            ? "bg-blue-500/10 text-blue-300 ring-1 ring-inset ring-blue-500/20"
+            : "text-zinc-400 hover:bg-zinc-800/70 hover:text-zinc-200"
+        }`}
       >
-        <File size={16} />
+        <File
+          className={`h-4 w-4 shrink-0 ${
+            active
+              ? "text-blue-400"
+              : "text-zinc-600 group-hover:text-zinc-400"
+          }`}
+        />
+
         <span className="truncate">{node.name}</span>
       </button>
     );
@@ -80,23 +87,24 @@ function TreeItem({
   return (
     <>
       <button
+        type="button"
         onClick={() => setOpen(!open)}
-        style={{ paddingLeft: `${level * 16 + 8}px` }}
-        className="flex w-full items-center gap-2 rounded-lg py-2 text-left transition hover:bg-zinc-800"
+        style={{ paddingLeft: `${level * 14 + 6}px` }}
+        className="group flex w-full items-center gap-1.5 rounded-md py-1.5 pr-2 text-left text-sm text-zinc-400 transition-colors hover:bg-zinc-800/70 hover:text-zinc-200"
       >
         {open ? (
-          <ChevronDown size={16} />
+          <ChevronDown className="h-3.5 w-3.5 shrink-0 text-zinc-600" />
         ) : (
-          <ChevronRight size={16} />
+          <ChevronRight className="h-3.5 w-3.5 shrink-0 text-zinc-600" />
         )}
 
         {open ? (
-          <FolderOpen size={16} className="text-yellow-400" />
+          <FolderOpen className="h-4 w-4 shrink-0 text-blue-400" />
         ) : (
-          <Folder size={16} className="text-yellow-400" />
+          <Folder className="h-4 w-4 shrink-0 text-blue-400" />
         )}
 
-        <span>{node.name}</span>
+        <span className="truncate">{node.name}</span>
       </button>
 
       {open &&
@@ -128,23 +136,67 @@ function FileTree({ nodes, onSelectFile }: Props) {
   }
 
   return (
-    <div className="rounded-2xl border border-zinc-800 bg-zinc-900 p-4">
-      <div className="mb-4 flex items-center gap-2 rounded-lg bg-zinc-800 px-3 py-2">
-        <Search size={18} className="text-zinc-400" />
+    <div className="overflow-hidden rounded-2xl border border-zinc-800/80 bg-zinc-900/60">
+      {/* Header */}
+      <div className="border-b border-zinc-800/80 px-4 py-3.5">
+        <div className="flex items-center justify-between">
+          <div>
+            <h2 className="text-sm font-semibold text-zinc-200">
+              Explorer
+            </h2>
 
-        <input
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          placeholder="Search files..."
-          className="w-full bg-transparent outline-none"
-        />
+            <p className="mt-0.5 text-xs text-zinc-600">
+              Repository files
+            </p>
+          </div>
+
+          <span className="rounded-md bg-zinc-800 px-2 py-1 text-[10px] font-medium uppercase tracking-wide text-zinc-500">
+            Files
+          </span>
+        </div>
       </div>
 
-      <div className="max-h-[650px] overflow-y-auto">
+      {/* Search */}
+      <div className="border-b border-zinc-800/80 p-3">
+        <div className="flex items-center gap-2 rounded-lg border border-zinc-800 bg-zinc-950/70 px-3 py-2 transition-colors focus-within:border-zinc-700">
+          <Search className="h-4 w-4 shrink-0 text-zinc-600" />
+
+          <input
+            type="text"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search files..."
+            className="w-full bg-transparent text-sm text-zinc-200 outline-none placeholder:text-zinc-600"
+          />
+
+          {search && (
+            <button
+              type="button"
+              onClick={() => setSearch("")}
+              className="text-xs text-zinc-600 transition-colors hover:text-zinc-300"
+            >
+              Clear
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* File Tree */}
+      <div className="max-h-[650px] overflow-y-auto p-2">
         {filteredTree.length === 0 ? (
-          <p className="text-center text-zinc-500">
-            No files found.
-          </p>
+          <div className="px-4 py-10 text-center">
+            <File className="mx-auto h-6 w-6 text-zinc-700" />
+
+            <p className="mt-3 text-sm text-zinc-500">
+              No files found.
+            </p>
+
+            {search && (
+              <p className="mt-1 text-xs text-zinc-600">
+                Try a different search term.
+              </p>
+            )}
+          </div>
         ) : (
           filteredTree.map((node) => (
             <TreeItem

@@ -6,7 +6,6 @@ from app.api.chat import router as chat_router
 from app.api.summary import router as summary_router
 from app.api.explanation import router as explanation_router
 from app.api.index import router as index_router
-
 from app.api.code_actions import router as code_actions_router
 from app.api.apply_code import router as apply_code_router
 from app.api.pull_request import router as pull_request_router
@@ -22,6 +21,9 @@ from app.api.dependency_analysis import (
 from app.api.security_analysis import (
     router as security_analysis_router,
 )
+from app.api.auth import router as auth_router
+
+
 app = FastAPI(
     title="DevPilot API",
     version="1.0.0",
@@ -49,18 +51,13 @@ app.include_router(index_router)
 app.include_router(code_actions_router)
 app.include_router(apply_code_router)
 app.include_router(pull_request_router)
-app.include_router(
-    repository_review_router
-)
-app.include_router(
-    architecture_analysis_router
-)
-app.include_router(
-    dependency_analysis_router
-)
-app.include_router(
-    security_analysis_router
-)
+app.include_router(repository_review_router)
+app.include_router(architecture_analysis_router)
+app.include_router(dependency_analysis_router)
+app.include_router(security_analysis_router)
+app.include_router(auth_router)
+
+
 @app.get("/")
 def root():
     return {

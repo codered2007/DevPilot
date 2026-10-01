@@ -9,10 +9,10 @@ function Terminal() {
         duration: 0.6,
         delay: 0.2,
       }}
-      className="overflow-hidden rounded-2xl border border-zinc-800 bg-zinc-900 shadow-2xl"
+      className="w-full overflow-hidden rounded-2xl border border-zinc-800/80 bg-zinc-900/90 shadow-2xl shadow-black/40"
     >
       {/* Header */}
-      <div className="flex items-center gap-2 border-b border-zinc-800 px-5 py-4">
+      <div className="flex items-center gap-2 border-b border-zinc-800/80 bg-zinc-900 px-5 py-4">
         <div className="h-3 w-3 rounded-full bg-red-500" />
         <div className="h-3 w-3 rounded-full bg-yellow-500" />
         <div className="h-3 w-3 rounded-full bg-green-500" />
@@ -23,33 +23,35 @@ function Terminal() {
       </div>
 
       {/* Body */}
-      <div className="space-y-4 p-6 font-mono text-sm leading-7">
+      <div className="space-y-5 p-7 font-mono text-sm leading-7">
         <div>
           <span className="text-blue-400">$</span>{" "}
-          <span>analyze repository</span>
+          <span className="text-zinc-200">analyze repository</span>
         </div>
 
-        <div className="text-emerald-400">
-          ✓ Repository indexed successfully
+        <div className="flex items-center gap-2 text-emerald-400">
+          <span>✓</span>
+          <span>Repository indexed successfully</span>
         </div>
 
         <div>
           <span className="text-blue-400">$</span>{" "}
-          <span>explain auth.ts</span>
+          <span className="text-zinc-200">explain auth.ts</span>
         </div>
 
-        <div className="rounded-lg bg-zinc-800/60 p-3 text-zinc-300">
+        <div className="rounded-xl border border-zinc-800/80 bg-zinc-800/50 p-4 text-zinc-300">
           Authentication uses JWT middleware with protected routes and
           refresh tokens.
         </div>
 
         <div>
           <span className="text-blue-400">$</span>{" "}
-          <span>find bugs</span>
+          <span className="text-zinc-200">find bugs</span>
         </div>
 
-        <div className="text-yellow-400">
-          ⚠ 3 possible issues detected
+        <div className="flex items-center gap-2 text-yellow-400">
+          <span>⚠</span>
+          <span>3 possible issues detected</span>
         </div>
       </div>
     </motion.div>

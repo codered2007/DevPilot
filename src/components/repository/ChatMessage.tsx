@@ -1,9 +1,11 @@
 import {
   Bot,
-  Clipboard,
+  Copy,
+  Check,
   FileCode,
   User,
 } from "lucide-react";
+import { useState } from "react";
 
 interface Props {
   role: "user" | "assistant";
@@ -18,80 +20,110 @@ function ChatMessage({
   sources,
   onSelectFile,
 }: Props) {
+  const [copied, setCopied] = useState(false);
+
   async function copy() {
     await navigator.clipboard.writeText(content);
+    setCopied(true);
+
+    window.setTimeout(() => {
+      setCopied(false);
+    }, 1500);
   }
+
+  const isAssistant = role === "assistant";
 
   return (
     <div
-      className={`flex gap-3 ${
-        role === "user"
-          ? "justify-end"
-          : "justify-start"
+      className={`group flex gap-2.5 ${
+        isAssistant ? "justify-start" : "justify-end"
       }`}
     >
-      {role === "assistant" && (
-        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-blue-600">
-          <Bot size={20} />
+      {/* Assistant Avatar */}
+      {isAssistant && (
+        <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-blue-500/20 bg-blue-500/10">
+          <Bot className="h-3.5 w-3.5 text-blue-400" />
         </div>
       )}
 
       <div
-        className={`max-w-[85%] rounded-2xl p-4 ${
-          role === "assistant"
-            ? "bg-zinc-800"
-            : "bg-blue-600"
+        className={`min-w-0 max-w-[88%] ${
+          isAssistant ? "" : "flex flex-col items-end"
         }`}
       >
-        <div className="whitespace-pre-wrap">
-          {content}
+        {/* Message */}
+        <div
+          className={`rounded-xl px-3.5 py-3 text-sm leading-6 ${
+            isAssistant
+              ? "border border-zinc-800 bg-zinc-900 text-zinc-300"
+              : "bg-blue-600 text-white"
+          }`}
+        >
+          <div className="whitespace-pre-wrap break-words">
+            {content}
+          </div>
+
+          {/* Sources */}
+          {isAssistant &&
+            sources &&
+            sources.length > 0 && (
+              <div className="mt-4 border-t border-zinc-800 pt-3">
+                <div className="mb-2 flex items-center gap-2">
+                  <span className="text-[10px] font-semibold uppercase tracking-wider text-zinc-600">
+                    Sources
+                  </span>
+
+                  <span className="rounded-full bg-zinc-800 px-1.5 py-0.5 text-[9px] text-zinc-500">
+                    {sources.length}
+                  </span>
+                </div>
+
+                <div className="space-y-1">
+                  {sources.map((source) => (
+                    <button
+                      key={source}
+                      type="button"
+                      onClick={() => onSelectFile?.(source)}
+                      className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-blue-400"
+                    >
+                      <FileCode className="h-3.5 w-3.5 shrink-0" />
+
+                      <span className="truncate font-mono">
+                        {source}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
         </div>
 
-        {role === "assistant" &&
-          sources &&
-          sources.length > 0 && (
-            <div className="mt-4 border-t border-zinc-700 pt-3">
-              <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-zinc-500">
-                Sources
-              </p>
-
-              <div className="space-y-1">
-                {sources.map((source) => (
-                  <button
-                    key={source}
-                    onClick={() =>
-                      onSelectFile?.(source)
-                    }
-                    className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-xs text-zinc-400 transition hover:bg-zinc-700 hover:text-white"
-                  >
-                    <FileCode
-                      size={14}
-                      className="shrink-0"
-                    />
-
-                    <span className="truncate">
-                      {source}
-                    </span>
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
-
-        {role === "assistant" && (
+        {/* Assistant Actions */}
+        {isAssistant && (
           <button
+            type="button"
             onClick={copy}
-            className="mt-3 flex items-center gap-2 text-xs text-zinc-400 hover:text-white"
+            className="mt-1.5 inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-[10px] text-zinc-600 opacity-0 transition-all hover:bg-zinc-900 hover:text-zinc-300 group-hover:opacity-100"
           >
-            <Clipboard size={14} />
-            Copy
+            {copied ? (
+              <>
+                <Check className="h-3 w-3 text-emerald-400" />
+                Copied
+              </>
+            ) : (
+              <>
+                <Copy className="h-3 w-3" />
+                Copy
+              </>
+            )}
           </button>
         )}
       </div>
 
-      {role === "user" && (
-        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-zinc-700">
-          <User size={20} />
+      {/* User Avatar */}
+      {!isAssistant && (
+        <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-zinc-800 bg-zinc-900">
+          <User className="h-3.5 w-3.5 text-zinc-500" />
         </div>
       )}
     </div>

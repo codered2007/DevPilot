@@ -1,5 +1,13 @@
 import { useState } from "react";
-import { Sparkles, LoaderCircle } from "lucide-react";
+import {
+  Sparkles,
+  LoaderCircle,
+  ExternalLink,
+  GitFork,
+  Star,
+  GitBranch,
+  Code2,
+} from "lucide-react";
 import { getRepositorySummary } from "../../services/api";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -31,6 +39,7 @@ function RepositoryHeader({ repository }: Props) {
         repository.owner,
         repository.repo
       );
+
       console.log(result.summary);
       setSummary(result.summary);
     } catch (err) {
@@ -43,77 +52,124 @@ function RepositoryHeader({ repository }: Props) {
 
   return (
     <>
-      <div className="rounded-3xl border border-zinc-800 bg-zinc-900 p-8">
-        <div className="flex flex-col gap-6 lg:flex-row lg:items-start lg:justify-between">
-          <div>
-            <h1 className="text-4xl font-bold">
-              {repository.name}
-            </h1>
+      {/* Repository Header */}
+      <div className="rounded-2xl border border-zinc-800/80 bg-zinc-900/60 p-6 lg:p-7">
+        <div className="flex flex-col gap-7 lg:flex-row lg:items-start lg:justify-between">
+          {/* Repository Information */}
+          <div className="min-w-0">
+            {/* Breadcrumb */}
+            <div className="flex flex-wrap items-center gap-2 text-sm">
+              <span className="text-zinc-500">{repository.owner}</span>
 
-            <p className="mt-3 text-zinc-400">
-              {repository.description}
-            </p>
+              <span className="text-zinc-700">/</span>
 
-            <div className="mt-6 flex flex-wrap gap-4 text-sm">
-              <div className="rounded-full bg-zinc-800 px-4 py-2">
-                ⭐ {repository.stars}
+              <span className="font-medium text-zinc-200">
+                {repository.repo}
+              </span>
+            </div>
+
+            {/* Title */}
+            <div className="mt-4 flex items-center gap-3">
+              <div className="flex h-10 w-10 items-center justify-center rounded-lg border border-zinc-800 bg-zinc-950">
+                <Code2 className="h-5 w-5 text-zinc-400" />
               </div>
 
-              <div className="rounded-full bg-zinc-800 px-4 py-2">
-                🍴 {repository.forks}
-              </div>
+              <h1 className="truncate text-3xl font-bold tracking-tight text-white">
+                {repository.name}
+              </h1>
+            </div>
 
-              <div className="rounded-full bg-zinc-800 px-4 py-2">
-                🌿 {repository.branch}
-              </div>
+            {/* Description */}
+            {repository.description && (
+              <p className="mt-4 max-w-3xl leading-6 text-zinc-400">
+                {repository.description}
+              </p>
+            )}
 
-              <div className="rounded-full bg-zinc-800 px-4 py-2">
-                💻 {repository.language}
-              </div>
+            {/* Repository Metadata */}
+            <div className="mt-6 flex flex-wrap items-center gap-2">
+              <span className="inline-flex items-center gap-1.5 rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-2 text-sm text-zinc-400">
+                <Star className="h-3.5 w-3.5" />
+                {repository.stars}
+              </span>
+
+              <span className="inline-flex items-center gap-1.5 rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-2 text-sm text-zinc-400">
+                <GitFork className="h-3.5 w-3.5" />
+                {repository.forks}
+              </span>
+
+              <span className="inline-flex items-center gap-1.5 rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-2 text-sm text-zinc-400">
+                <GitBranch className="h-3.5 w-3.5" />
+                {repository.branch}
+              </span>
+
+              <span className="inline-flex items-center gap-1.5 rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-2 text-sm text-zinc-400">
+                <Code2 className="h-3.5 w-3.5" />
+                {repository.language || "Unknown"}
+              </span>
+
+              <a
+                href={`https://github.com/${repository.owner}/${repository.repo}`}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center gap-1.5 rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-2 text-sm text-zinc-400 transition-colors hover:border-zinc-700 hover:text-zinc-200"
+              >
+                GitHub
+                <ExternalLink className="h-3.5 w-3.5" />
+              </a>
             </div>
           </div>
 
+          {/* Analyze Action */}
           <button
+            type="button"
             onClick={analyzeRepository}
             disabled={loading}
-            className="flex items-center justify-center gap-2 rounded-xl bg-blue-600 px-6 py-3 font-medium transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+            className="inline-flex shrink-0 items-center justify-center gap-2 rounded-lg bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white shadow-lg shadow-blue-600/10 transition-colors hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-50"
           >
             {loading ? (
               <>
-                <LoaderCircle
-                  size={18}
-                  className="animate-spin"
-                />
-                Analyzing Repository...
+                <LoaderCircle className="h-4 w-4 animate-spin" />
+                Analyzing...
               </>
             ) : (
               <>
-                <Sparkles size={18} />
-                {summary
-                  ? "Re-Analyze"
-                  : "Analyze Repository"}
+                <Sparkles className="h-4 w-4" />
+                {summary ? "Re-analyze" : "Analyze Repository"}
               </>
             )}
           </button>
         </div>
       </div>
 
+      {/* Error */}
       {error && (
-        <div className="rounded-2xl border border-red-700 bg-red-950/40 p-5 text-red-400">
+        <div className="rounded-xl border border-red-900/60 bg-red-950/20 p-4 text-sm text-red-400">
           {error}
         </div>
       )}
 
+      {/* Repository Analysis */}
       {summary && (
-        <div className="rounded-3xl border border-zinc-800 bg-zinc-900 p-8">
-          <h2 className="mb-6 text-2xl font-bold">
-            ✨ Repository Analysis
-          </h2>
+        <div className="rounded-2xl border border-zinc-800/80 bg-zinc-900/60 p-6 lg:p-7">
+          <div className="mb-6 flex items-center gap-3">
+            <div className="flex h-9 w-9 items-center justify-center rounded-lg border border-zinc-800 bg-zinc-950">
+              <Sparkles className="h-4 w-4 text-blue-400" />
+            </div>
 
-          <div className="prose prose-invert max-w-none prose-headings:text-white prose-p:text-zinc-300 prose-li:text-zinc-300">
-            <ReactMarkdown
-              remarkPlugins={[remarkGfm]}
-            >
+            <div>
+              <h2 className="text-xl font-semibold text-white">
+                Repository Analysis
+              </h2>
+
+              <p className="mt-0.5 text-sm text-zinc-500">
+                AI-generated overview of this codebase
+              </p>
+            </div>
+          </div>
+
+          <div className="prose prose-invert max-w-none prose-headings:text-white prose-p:text-zinc-300 prose-li:text-zinc-300 prose-a:text-blue-400">
+            <ReactMarkdown remarkPlugins={[remarkGfm]}>
               {summary}
             </ReactMarkdown>
           </div>
