@@ -1272,89 +1272,84 @@ const persistentFindings =
 
 
       {loading && (
+  <div className="overflow-hidden rounded-2xl border border-zinc-800/80 bg-zinc-900/60">
+    <div className="flex items-center gap-3 border-b border-zinc-800/80 px-5 py-4">
+      <RefreshCw className="h-4 w-4 animate-spin text-blue-400" />
+      <div>
+        <p className="text-sm font-medium text-zinc-200">
+          Loading repository
+        </p>
+        <p className="mt-0.5 text-xs text-zinc-500">
+          Fetching files from GitHub...
+        </p>
+      </div>
+    </div>
 
-        <div className="rounded-3xl border border-zinc-800 bg-zinc-900 p-8">
-
-          Loading repository files...
-
-        </div>
-
-      )}
+    <div className="space-y-3 p-5">
+      <div className="h-4 w-1/3 animate-pulse rounded bg-zinc-800" />
+      <div className="h-4 w-2/3 animate-pulse rounded bg-zinc-800" />
+      <div className="h-4 w-1/2 animate-pulse rounded bg-zinc-800" />
+      <div className="h-4 w-3/4 animate-pulse rounded bg-zinc-800" />
+    </div>
+  </div>
+)}
 
 
       {error && (
+  <div className="overflow-hidden rounded-2xl border border-red-900/60 bg-red-950/10">
+    <div className="flex items-start gap-3 p-5">
+      <CircleAlert className="mt-0.5 h-5 w-5 shrink-0 text-red-400" />
 
-        <div className="rounded-3xl border border-red-700 bg-red-900/20 p-8 text-red-400">
+      <div>
+        <p className="text-sm font-semibold text-red-300">
+          Unable to load repository
+        </p>
 
+        <p className="mt-1 text-sm text-red-400/80">
           {error}
+        </p>
 
-        </div>
-
-      )}
+        <p className="mt-3 text-xs text-zinc-500">
+          Check your GitHub authentication and repository access, then refresh
+          the page.
+        </p>
+      </div>
+    </div>
+  </div>
+)}
 
 
       {!loading && !error && (
 
         <>
 
-          <div className="grid gap-6 xl:grid-cols-12">
+          <div className="grid min-w-0 gap-6 xl:grid-cols-12">
+  <div className="min-w-0 xl:col-span-3">
+    <FileTree
+      nodes={tree}
+      onSelectFile={handleSelectFile}
+    />
+  </div>
 
+  <div className="min-w-0 xl:col-span-6">
+    <CodeViewer
+      owner={repository.owner}
+      repo={repository.repo}
+      file={fileContent}
+      fileName={selectedFilePath}
+      onApplyCode={handleApplyCode}
+      reviewLine={reviewLine}
+    />
+  </div>
 
-            <div className="xl:col-span-3">
-
-              <FileTree
-                nodes={tree}
-                onSelectFile={
-                  handleSelectFile
-                }
-              />
-
-            </div>
-
-
-            <div className="xl:col-span-6">
-
-              <CodeViewer
-                owner={
-                  repository.owner
-                }
-                repo={
-                  repository.repo
-                }
-                file={
-                  fileContent
-                }
-                fileName={
-                  selectedFilePath
-                }
-                onApplyCode={
-                  handleApplyCode
-                }
-                reviewLine={
-                  reviewLine
-                }
-              />
-
-            </div>
-
-
-            <div className="xl:col-span-3">
-
-              <AIChatPanel
-                owner={
-                  repository.owner
-                }
-                repo={
-                  repository.repo
-                }
-                onSelectFile={
-                  handleSelectFile
-                }
-              />
-
-            </div>
-
-          </div>
+  <div className="min-w-0 xl:col-span-3">
+    <AIChatPanel
+      owner={repository.owner}
+      repo={repository.repo}
+      onSelectFile={handleSelectFile}
+    />
+  </div>
+</div>
 
 
           {/* Review Results */}

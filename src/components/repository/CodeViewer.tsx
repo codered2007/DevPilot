@@ -1,27 +1,26 @@
 import { useEffect, useState } from "react";
 import {
-  Sparkles,
-  Wrench,
-  RefreshCw,
+  BookOpen,
   Check,
   Copy,
   ExternalLink,
-  BookOpen,
+  RefreshCw,
+  Sparkles,
   WandSparkles,
+  Wrench,
 } from "lucide-react";
 import Editor, { DiffEditor } from "@monaco-editor/react";
 import type { OnMount } from "@monaco-editor/react";
 import type { editor } from "monaco-editor";
-
 import ReactMarkdown from "react-markdown";
 
 import Breadcrumbs from "./Breadcrumbs";
 
 import {
-  explainCode,
-  generateCodeAction,
   applyCodeToGitHub,
   createPullRequest,
+  explainCode,
+  generateCodeAction,
 } from "../../services/api";
 
 interface CodeViewerProps {
@@ -36,7 +35,10 @@ interface CodeViewerProps {
 function getLanguage(fileName?: string) {
   if (!fileName) return "plaintext";
 
-  const extension = fileName.split(".").pop()?.toLowerCase();
+  const extension = fileName
+    .split(".")
+    .pop()
+    ?.toLowerCase();
 
   switch (extension) {
     case "ts":
@@ -97,11 +99,14 @@ function CodeViewer({
   onApplyCode,
   reviewLine,
 }: CodeViewerProps) {
-  const [explaining, setExplaining] = useState(false);
+  const [explaining, setExplaining] =
+    useState(false);
   const [explanation, setExplanation] = useState("");
-  const [explanationError, setExplanationError] = useState("");
+  const [explanationError, setExplanationError] =
+    useState("");
 
-  const [codeAction, setCodeAction] = useState<CodeAction | null>(null);
+  const [codeAction, setCodeAction] =
+    useState<CodeAction | null>(null);
   const [completedAction, setCompletedAction] =
     useState<CodeAction | null>(null);
   const [actionCode, setActionCode] = useState("");
@@ -112,16 +117,21 @@ function CodeViewer({
   const [githubResult, setGithubResult] =
     useState<GitHubApplyResult | null>(null);
 
-  const [pullRequestLoading, setPullRequestLoading] = useState(false);
-  const [pullRequestResult, setPullRequestResult] = useState<{
-    number: number;
-    title: string;
-    url: string;
-  } | null>(null);
-  const [pullRequestError, setPullRequestError] = useState("");
+  const [pullRequestLoading, setPullRequestLoading] =
+    useState(false);
+  const [pullRequestResult, setPullRequestResult] =
+    useState<{
+      number: number;
+      title: string;
+      url: string;
+    } | null>(null);
+  const [pullRequestError, setPullRequestError] =
+    useState("");
 
   const [editorInstance, setEditorInstance] =
-    useState<editor.IStandaloneCodeEditor | null>(null);
+    useState<editor.IStandaloneCodeEditor | null>(
+      null
+    );
 
   const handleEditorMount: OnMount = (editor) => {
     setEditorInstance(editor);
@@ -136,7 +146,9 @@ function CodeViewer({
       return;
     }
 
-    editorInstance.revealLineInCenter(reviewLine);
+    editorInstance.revealLineInCenter(
+      reviewLine
+    );
 
     editorInstance.setPosition({
       lineNumber: reviewLine,
@@ -156,6 +168,8 @@ function CodeViewer({
     setGithubResult(null);
     setPullRequestResult(null);
     setPullRequestError("");
+    setExplanation("");
+    setExplanationError("");
   }, [fileName]);
 
   useEffect(() => {
@@ -218,13 +232,17 @@ function CodeViewer({
       setExplanation(result.response);
     } catch (err) {
       console.error(err);
-      setExplanationError("Failed to explain this code.");
+      setExplanationError(
+        "Failed to explain this code."
+      );
     } finally {
       setExplaining(false);
     }
   }
 
-  async function handleCodeAction(action: CodeAction) {
+  async function handleCodeAction(
+    action: CodeAction
+  ) {
     if (!file || !fileName) {
       return;
     }
@@ -363,99 +381,123 @@ function CodeViewer({
     }
   }
 
+  const actionButtonsDisabled =
+    codeAction !== null;
+
   return (
-    <div className="space-y-5">
+    <div className="min-w-0 space-y-5">
       {/* Code Viewer */}
-      <div className="overflow-hidden rounded-2xl border border-zinc-800/80 bg-zinc-950">
+      <div className="min-w-0 overflow-hidden rounded-2xl border border-zinc-800/80 bg-zinc-950">
         {/* Editor Header */}
         <div className="border-b border-zinc-800/80 bg-zinc-900/80">
-          <div className="flex flex-col gap-4 px-4 py-3 lg:flex-row lg:items-center lg:justify-between">
-            <div className="min-w-0">
-              <div className="flex items-center gap-2">
-                <div className="h-2 w-2 rounded-full bg-emerald-400" />
+          <div className="flex flex-col gap-4 px-4 py-3 lg:px-5">
+            {/* File information */}
+            <div className="flex min-w-0 items-start justify-between gap-3">
+              <div className="min-w-0">
+                <div className="flex min-w-0 items-center gap-2">
+                  <div className="h-2 w-2 shrink-0 rounded-full bg-emerald-400" />
 
-                <h2 className="truncate text-sm font-semibold text-zinc-200">
-                  {fileName
-                    ? fileName.split("/").pop()
-                    : "Code Viewer"}
-                </h2>
+                  <h2
+                    className="min-w-0 truncate text-sm font-semibold text-zinc-200"
+                    title={fileName ?? "Code Viewer"}
+                  >
+                    {fileName
+                      ? fileName.split("/").pop()
+                      : "Code Viewer"}
+                  </h2>
 
-                {file && (
-                  <span className="rounded-md border border-zinc-800 bg-zinc-950 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-zinc-600">
-                    Read only
-                  </span>
-                )}
+                  {file && (
+                    <span className="hidden shrink-0 rounded-md border border-zinc-800 bg-zinc-950 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-zinc-600 sm:inline">
+                      Read only
+                    </span>
+                  )}
+                </div>
+
+                <div className="mt-1.5 max-w-full overflow-x-auto whitespace-nowrap text-xs text-zinc-600">
+                  <Breadcrumbs path={fileName ?? ""} />
+                </div>
               </div>
 
-              <div className="mt-1.5 overflow-hidden text-xs text-zinc-600">
-                <Breadcrumbs path={fileName ?? ""} />
-              </div>
+              {file && (
+                <button
+                  type="button"
+                  onClick={copyCode}
+                  title="Copy code"
+                  aria-label="Copy code"
+                  className="shrink-0 rounded-md border border-zinc-800 bg-zinc-950 p-2 text-zinc-500 transition-colors hover:border-zinc-700 hover:text-zinc-200"
+                >
+                  <Copy className="h-3.5 w-3.5" />
+                </button>
+              )}
             </div>
 
+            {/* Code actions */}
             {file && (
-              <div className="flex flex-wrap items-center gap-1.5">
-                {/* Explain */}
+              <div className="flex min-w-0 flex-wrap items-center gap-1.5">
                 <button
                   type="button"
                   onClick={handleExplainCode}
                   disabled={explaining}
                   title="Explain this code"
-                  className="inline-flex items-center gap-2 rounded-md border border-zinc-800 bg-zinc-950 px-3 py-2 text-xs font-medium text-zinc-400 transition-colors hover:border-zinc-700 hover:text-zinc-200 disabled:cursor-not-allowed disabled:opacity-50"
+                  className="inline-flex items-center gap-2 rounded-md border border-zinc-800 bg-zinc-950 px-2.5 py-2 text-xs font-medium text-zinc-400 transition-colors hover:border-zinc-700 hover:text-zinc-200 disabled:cursor-not-allowed disabled:opacity-50 sm:px-3"
                 >
                   <BookOpen className="h-3.5 w-3.5" />
-                  {explaining ? "Explaining..." : "Explain"}
+                  <span>
+                    {explaining
+                      ? "Explaining..."
+                      : "Explain"}
+                  </span>
                 </button>
 
-                {/* Fix */}
                 <button
                   type="button"
-                  onClick={() => handleCodeAction("fix")}
-                  disabled={codeAction !== null}
+                  onClick={() =>
+                    handleCodeAction("fix")
+                  }
+                  disabled={actionButtonsDisabled}
                   title="Fix code"
-                  className="inline-flex items-center gap-2 rounded-md border border-zinc-800 bg-zinc-950 px-3 py-2 text-xs font-medium text-zinc-400 transition-colors hover:border-zinc-700 hover:text-zinc-200 disabled:cursor-not-allowed disabled:opacity-50"
+                  className="inline-flex items-center gap-2 rounded-md border border-zinc-800 bg-zinc-950 px-2.5 py-2 text-xs font-medium text-zinc-400 transition-colors hover:border-zinc-700 hover:text-zinc-200 disabled:cursor-not-allowed disabled:opacity-50 sm:px-3"
                 >
                   <Wrench className="h-3.5 w-3.5" />
-                  {codeAction === "fix" ? "Fixing..." : "Fix"}
+                  <span>
+                    {codeAction === "fix"
+                      ? "Fixing..."
+                      : "Fix"}
+                  </span>
                 </button>
 
-                {/* Improve */}
                 <button
                   type="button"
-                  onClick={() => handleCodeAction("improve")}
-                  disabled={codeAction !== null}
+                  onClick={() =>
+                    handleCodeAction("improve")
+                  }
+                  disabled={actionButtonsDisabled}
                   title="Improve code"
-                  className="inline-flex items-center gap-2 rounded-md border border-zinc-800 bg-zinc-950 px-3 py-2 text-xs font-medium text-zinc-400 transition-colors hover:border-zinc-700 hover:text-zinc-200 disabled:cursor-not-allowed disabled:opacity-50"
+                  className="inline-flex items-center gap-2 rounded-md border border-zinc-800 bg-zinc-950 px-2.5 py-2 text-xs font-medium text-zinc-400 transition-colors hover:border-zinc-700 hover:text-zinc-200 sm:px-3"
                 >
                   <Sparkles className="h-3.5 w-3.5" />
-                  {codeAction === "improve"
-                    ? "Improving..."
-                    : "Improve"}
+                  <span>
+                    {codeAction === "improve"
+                      ? "Improving..."
+                      : "Improve"}
+                  </span>
                 </button>
 
-                {/* Refactor */}
                 <button
                   type="button"
-                  onClick={() => handleCodeAction("refactor")}
-                  disabled={codeAction !== null}
+                  onClick={() =>
+                    handleCodeAction("refactor")
+                  }
+                  disabled={actionButtonsDisabled}
                   title="Refactor code"
-                  className="inline-flex items-center gap-2 rounded-md border border-zinc-800 bg-zinc-950 px-3 py-2 text-xs font-medium text-zinc-400 transition-colors hover:border-zinc-700 hover:text-zinc-200 disabled:cursor-not-allowed disabled:opacity-50"
+                  className="inline-flex items-center gap-2 rounded-md border border-zinc-800 bg-zinc-950 px-2.5 py-2 text-xs font-medium text-zinc-400 transition-colors hover:border-zinc-700 hover:text-zinc-200 sm:px-3"
                 >
                   <WandSparkles className="h-3.5 w-3.5" />
-                  {codeAction === "refactor"
-                    ? "Refactoring..."
-                    : "Refactor"}
-                </button>
-
-                <div className="mx-1 hidden h-5 w-px bg-zinc-800 sm:block" />
-
-                {/* Copy */}
-                <button
-                  type="button"
-                  onClick={copyCode}
-                  title="Copy code"
-                  className="inline-flex items-center justify-center rounded-md border border-zinc-800 bg-zinc-950 p-2 text-zinc-500 transition-colors hover:border-zinc-700 hover:text-zinc-200"
-                >
-                  <Copy className="h-3.5 w-3.5" />
+                  <span>
+                    {codeAction === "refactor"
+                      ? "Refactoring..."
+                      : "Refactor"}
+                  </span>
                 </button>
               </div>
             )}
@@ -464,29 +506,31 @@ function CodeViewer({
 
         {/* Monaco Editor */}
         {file ? (
-          <Editor
-            height="700px"
-            theme="vs-dark"
-            language={getLanguage(fileName)}
-            value={file}
-            onMount={handleEditorMount}
-            options={{
-              readOnly: true,
-              minimap: {
-                enabled: false,
-              },
-              fontSize: 14,
-              fontLigatures: true,
-              scrollBeyondLastLine: false,
-              wordWrap: "on",
-              automaticLayout: true,
-              padding: {
-                top: 20,
-              },
-            }}
-          />
+          <div className="min-w-0 overflow-hidden">
+            <Editor
+              height="700px"
+              theme="vs-dark"
+              language={getLanguage(fileName)}
+              value={file}
+              onMount={handleEditorMount}
+              options={{
+                readOnly: true,
+                minimap: {
+                  enabled: false,
+                },
+                fontSize: 14,
+                fontLigatures: true,
+                scrollBeyondLastLine: false,
+                wordWrap: "on",
+                automaticLayout: true,
+                padding: {
+                  top: 20,
+                },
+              }}
+            />
+          </div>
         ) : (
-          <div className="flex h-[700px] flex-col items-center justify-center bg-zinc-950 text-center">
+          <div className="flex h-[500px] flex-col items-center justify-center bg-zinc-950 px-6 text-center sm:h-[600px] lg:h-[700px]">
             <div className="flex h-12 w-12 items-center justify-center rounded-xl border border-zinc-800 bg-zinc-900">
               <BookOpen className="h-5 w-5 text-zinc-600" />
             </div>
@@ -506,7 +550,7 @@ function CodeViewer({
       {explaining && (
         <div className="rounded-xl border border-zinc-800/80 bg-zinc-900/60 p-5">
           <div className="flex items-center gap-3">
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-500/10">
+            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-blue-500/10">
               <Sparkles className="h-4 w-4 animate-pulse text-blue-400" />
             </div>
 
@@ -532,9 +576,9 @@ function CodeViewer({
 
       {/* Explanation */}
       {explanation && (
-        <div className="rounded-2xl border border-zinc-800/80 bg-zinc-900/60 p-6">
-          <div className="mb-6 flex items-center gap-3">
-            <div className="flex h-9 w-9 items-center justify-center rounded-lg border border-zinc-800 bg-zinc-950">
+        <div className="rounded-2xl border border-zinc-800/80 bg-zinc-900/60 p-5 sm:p-6">
+          <div className="mb-6 flex items-start gap-3">
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-zinc-800 bg-zinc-950">
               <Sparkles className="h-4 w-4 text-blue-400" />
             </div>
 
@@ -549,8 +593,10 @@ function CodeViewer({
             </div>
           </div>
 
-          <div className="prose prose-invert max-w-none text-zinc-300">
-            <ReactMarkdown>{explanation}</ReactMarkdown>
+          <div className="prose prose-invert max-w-none overflow-x-auto text-zinc-300">
+            <ReactMarkdown>
+              {explanation}
+            </ReactMarkdown>
           </div>
         </div>
       )}
@@ -571,7 +617,7 @@ function CodeViewer({
 
       {/* GitHub Success */}
       {githubResult && (
-        <div className="rounded-2xl border border-emerald-900/50 bg-emerald-950/10 p-6">
+        <div className="rounded-2xl border border-emerald-900/50 bg-emerald-950/10 p-5 sm:p-6">
           <div className="flex items-start gap-3">
             <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-emerald-500/10">
               <Check className="h-4 w-4 text-emerald-400" />
@@ -584,14 +630,14 @@ function CodeViewer({
 
               <p className="mt-2 text-sm text-zinc-500">
                 Branch:
-                <span className="ml-2 font-mono text-zinc-300">
+                <span className="ml-2 break-all font-mono text-zinc-300">
                   {githubResult.branch}
                 </span>
               </p>
 
               <p className="mt-1 text-sm text-zinc-500">
                 Base:
-                <span className="ml-2 font-mono text-zinc-300">
+                <span className="ml-2 break-all font-mono text-zinc-300">
                   {githubResult.base_branch}
                 </span>
               </p>
@@ -612,9 +658,11 @@ function CodeViewer({
                 <div className="mt-5">
                   <button
                     type="button"
-                    onClick={handleCreatePullRequest}
+                    onClick={
+                      handleCreatePullRequest
+                    }
                     disabled={pullRequestLoading}
-                    className="inline-flex items-center gap-2 rounded-lg bg-zinc-100 px-4 py-2 text-sm font-medium text-zinc-900 transition-colors hover:bg-white disabled:cursor-not-allowed disabled:opacity-50"
+                    className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-zinc-100 px-4 py-2 text-sm font-medium text-zinc-900 transition-colors hover:bg-white disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto"
                   >
                     {pullRequestLoading ? (
                       <>
@@ -644,7 +692,7 @@ function CodeViewer({
                       <Check className="h-4 w-4 text-emerald-400" />
                     </div>
 
-                    <div>
+                    <div className="min-w-0">
                       <h3 className="text-sm font-semibold text-white">
                         Pull Request created
                       </h3>
@@ -673,11 +721,11 @@ function CodeViewer({
 
       {/* Proposed Changes */}
       {actionCode && (
-        <div className="overflow-hidden rounded-2xl border border-zinc-800/80 bg-zinc-950">
+        <div className="min-w-0 overflow-hidden rounded-2xl border border-zinc-800/80 bg-zinc-950">
           <div className="flex flex-col gap-4 border-b border-zinc-800/80 bg-zinc-900/80 px-4 py-4 sm:flex-row sm:items-center sm:justify-between">
-            <div>
+            <div className="min-w-0">
               <div className="flex items-center gap-2">
-                <Wrench className="h-4 w-4 text-blue-400" />
+                <Wrench className="h-4 w-4 shrink-0 text-blue-400" />
 
                 <h2 className="text-sm font-semibold text-white">
                   Proposed Changes
@@ -690,7 +738,7 @@ function CodeViewer({
               </p>
             </div>
 
-            <div className="flex flex-wrap items-center gap-2">
+            <div className="flex flex-col gap-2 sm:flex-row">
               <button
                 type="button"
                 onClick={handleRejectCode}
@@ -704,7 +752,7 @@ function CodeViewer({
                 type="button"
                 onClick={handleApplyCode}
                 disabled={applying}
-                className="inline-flex items-center gap-2 rounded-lg bg-zinc-100 px-4 py-2 text-sm font-medium text-zinc-900 transition-colors hover:bg-white disabled:cursor-not-allowed disabled:opacity-50"
+                className="inline-flex items-center justify-center gap-2 rounded-lg bg-zinc-100 px-4 py-2 text-sm font-medium text-zinc-900 transition-colors hover:bg-white disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {applying ? (
                   <>
@@ -721,28 +769,30 @@ function CodeViewer({
             </div>
           </div>
 
-          <DiffEditor
-            height="700px"
-            theme="vs-dark"
-            language={getLanguage(fileName)}
-            original={file ?? ""}
-            modified={actionCode}
-            options={{
-              readOnly: true,
-              minimap: {
-                enabled: false,
-              },
-              fontSize: 14,
-              fontLigatures: true,
-              scrollBeyondLastLine: false,
-              wordWrap: "on",
-              automaticLayout: true,
-              renderSideBySide: true,
-              padding: {
-                top: 20,
-              },
-            }}
-          />
+          <div className="min-w-0 overflow-hidden">
+            <DiffEditor
+              height="700px"
+              theme="vs-dark"
+              language={getLanguage(fileName)}
+              original={file ?? ""}
+              modified={actionCode}
+              options={{
+                readOnly: true,
+                minimap: {
+                  enabled: false,
+                },
+                fontSize: 14,
+                fontLigatures: true,
+                scrollBeyondLastLine: false,
+                wordWrap: "on",
+                automaticLayout: true,
+                renderSideBySide: true,
+                padding: {
+                  top: 20,
+                },
+              }}
+            />
+          </div>
         </div>
       )}
     </div>

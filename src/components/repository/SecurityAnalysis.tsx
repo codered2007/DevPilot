@@ -5,9 +5,9 @@ import {
   CheckCircle2,
   ChevronDown,
   ChevronUp,
+  RefreshCw,
   ShieldAlert,
   ShieldCheck,
-  RefreshCw,
 } from "lucide-react";
 
 interface SecurityFinding {
@@ -145,20 +145,20 @@ export default function SecurityAnalysis({
   };
 
   return (
-    <section className="overflow-hidden rounded-2xl border border-zinc-800/80 bg-zinc-900/60">
+    <section className="min-w-0 overflow-hidden rounded-2xl border border-zinc-800/80 bg-zinc-900/60">
       {/* Header */}
-      <div className="flex flex-col gap-4 border-b border-zinc-800/80 bg-zinc-900/80 px-5 py-4 md:flex-row md:items-center md:justify-between">
-        <div className="flex items-start gap-3">
+      <div className="flex min-w-0 flex-col gap-4 border-b border-zinc-800/80 bg-zinc-900/80 px-4 py-4 sm:px-5 md:flex-row md:items-center md:justify-between">
+        <div className="flex min-w-0 items-start gap-3">
           <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-emerald-500/20 bg-emerald-500/10">
             <ShieldCheck className="h-4 w-4 text-emerald-400" />
           </div>
 
-          <div>
+          <div className="min-w-0">
             <h2 className="text-sm font-semibold text-zinc-200">
               Security Analysis
             </h2>
 
-            <p className="mt-1 text-xs text-zinc-600">
+            <p className="mt-1 text-xs leading-5 text-zinc-600">
               Scan repository dependencies for known vulnerabilities.
             </p>
           </div>
@@ -168,7 +168,7 @@ export default function SecurityAnalysis({
           type="button"
           onClick={runAnalysis}
           disabled={loading}
-          className="inline-flex items-center justify-center gap-2 rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-2 text-xs font-medium text-zinc-400 transition-colors hover:border-zinc-700 hover:text-zinc-200 disabled:cursor-not-allowed disabled:opacity-50"
+          className="inline-flex w-full shrink-0 items-center justify-center gap-2 rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-2 text-xs font-medium text-zinc-400 transition-colors hover:border-zinc-700 hover:text-zinc-200 disabled:cursor-not-allowed disabled:opacity-50 md:w-auto"
         >
           <RefreshCw
             className={`h-3.5 w-3.5 ${
@@ -182,16 +182,16 @@ export default function SecurityAnalysis({
 
       {/* Error */}
       {error && (
-        <div className="mx-5 mt-5 rounded-xl border border-red-900/60 bg-red-950/20 p-4">
+        <div className="mx-4 mt-5 rounded-xl border border-red-900/60 bg-red-950/20 p-4 sm:mx-5">
           <div className="flex items-start gap-3">
             <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0 text-red-400" />
 
-            <div>
+            <div className="min-w-0">
               <p className="text-sm font-medium text-red-300">
                 Security scan failed
               </p>
 
-              <p className="mt-1 text-xs leading-5 text-red-400/70">
+              <p className="mt-1 break-words text-xs leading-5 text-red-400/70">
                 {error}
               </p>
             </div>
@@ -201,7 +201,7 @@ export default function SecurityAnalysis({
 
       {/* Results */}
       {result && (
-        <div className="space-y-7 p-5">
+        <div className="min-w-0 space-y-7 p-4 sm:p-5">
           {/* Statistics */}
           <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
             <div className="rounded-xl border border-zinc-800/80 bg-zinc-950/50 p-4">
@@ -270,7 +270,7 @@ export default function SecurityAnalysis({
                   <CheckCircle2 className="h-4 w-4 text-emerald-400" />
                 </div>
 
-                <div>
+                <div className="min-w-0">
                   <h3 className="text-sm font-semibold text-emerald-300">
                     No known vulnerabilities found
                   </h3>
@@ -287,20 +287,20 @@ export default function SecurityAnalysis({
 
           {/* Findings */}
           {result.findings.length > 0 && (
-            <div>
-              <div className="mb-3 flex items-center justify-between">
-                <div>
+            <div className="min-w-0">
+              <div className="mb-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div className="min-w-0">
                   <h3 className="text-sm font-medium text-zinc-200">
                     Vulnerability Findings
                   </h3>
 
-                  <p className="mt-1 text-xs text-zinc-600">
+                  <p className="mt-1 text-xs leading-5 text-zinc-600">
                     Review detected security issues and
                     available fixes.
                   </p>
                 </div>
 
-                <span className="rounded-md border border-zinc-800 bg-zinc-950 px-2 py-1 text-[10px] font-medium text-zinc-500">
+                <span className="w-fit shrink-0 rounded-md border border-zinc-800 bg-zinc-950 px-2 py-1 text-[10px] font-medium text-zinc-500">
                   {result.findings.length}{" "}
                   {result.findings.length === 1
                     ? "finding"
@@ -324,14 +324,14 @@ export default function SecurityAnalysis({
                   return (
                     <div
                       key={finding.id}
-                      className="overflow-hidden rounded-xl border border-zinc-800/80 bg-zinc-950/40"
+                      className="min-w-0 overflow-hidden rounded-xl border border-zinc-800/80 bg-zinc-950/40"
                     >
                       <button
                         type="button"
                         onClick={() =>
                           toggleFinding(finding.id)
                         }
-                        className="flex w-full items-center gap-3 p-4 text-left transition-colors hover:bg-zinc-900/70"
+                        className="flex min-w-0 w-full items-start gap-3 p-4 text-left transition-colors hover:bg-zinc-900/70"
                       >
                         <div
                           className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border ${style.badge}`}
@@ -342,12 +342,21 @@ export default function SecurityAnalysis({
                         </div>
 
                         <div className="min-w-0 flex-1">
-                          <div className="flex flex-wrap items-center gap-2">
-                            <span className="font-medium text-zinc-200">
+                          <div className="flex min-w-0 flex-wrap items-center gap-2">
+                            <span
+                              className="min-w-0 max-w-full truncate font-medium text-zinc-200"
+                              title={finding.dependency}
+                            >
                               {finding.dependency}
                             </span>
 
-                            <span className="font-mono text-xs text-zinc-600">
+                            <span
+                              className="max-w-full truncate font-mono text-xs text-zinc-600"
+                              title={
+                                finding.resolved_version ||
+                                finding.version
+                              }
+                            >
                               {finding.resolved_version ||
                                 finding.version}
                             </span>
@@ -359,15 +368,15 @@ export default function SecurityAnalysis({
                             </span>
                           </div>
 
-                          <p className="mt-1 line-clamp-2 text-xs leading-5 text-zinc-500">
+                          <p className="mt-1 line-clamp-2 break-words text-xs leading-5 text-zinc-500">
                             {finding.summary}
                           </p>
                         </div>
 
                         {isExpanded ? (
-                          <ChevronUp className="h-4 w-4 shrink-0 text-zinc-600" />
+                          <ChevronUp className="mt-1 h-4 w-4 shrink-0 text-zinc-600" />
                         ) : (
-                          <ChevronDown className="h-4 w-4 shrink-0 text-zinc-600" />
+                          <ChevronDown className="mt-1 h-4 w-4 shrink-0 text-zinc-600" />
                         )}
                       </button>
 
@@ -380,30 +389,43 @@ export default function SecurityAnalysis({
                                   Details
                                 </p>
 
-                                <p className="text-sm leading-6 text-zinc-400">
+                                <p className="break-words text-sm leading-6 text-zinc-400">
                                   {finding.details}
                                 </p>
                               </div>
                             )}
 
                             <div className="grid gap-4 sm:grid-cols-2">
-                              <div>
+                              <div className="min-w-0">
                                 <p className="text-[10px] font-semibold uppercase tracking-wider text-zinc-600">
                                   Ecosystem
                                 </p>
 
-                                <p className="mt-1 font-mono text-sm text-zinc-300">
+                                <p
+                                  className="mt-1 truncate font-mono text-sm text-zinc-300"
+                                  title={
+                                    finding.ecosystem ||
+                                    "Unknown"
+                                  }
+                                >
                                   {finding.ecosystem ||
                                     "Unknown"}
                                 </p>
                               </div>
 
-                              <div>
+                              <div className="min-w-0">
                                 <p className="text-[10px] font-semibold uppercase tracking-wider text-zinc-600">
                                   Version
                                 </p>
 
-                                <p className="mt-1 font-mono text-sm text-zinc-300">
+                                <p
+                                  className="mt-1 break-all font-mono text-sm text-zinc-300"
+                                  title={
+                                    finding.resolved_version ||
+                                    finding.version ||
+                                    "Unknown"
+                                  }
+                                >
                                   {finding.resolved_version ||
                                     finding.version ||
                                     "Unknown"}
@@ -417,7 +439,10 @@ export default function SecurityAnalysis({
                                   Fixed Version
                                 </p>
 
-                                <p className="mt-1 font-mono text-sm text-emerald-300">
+                                <p
+                                  className="mt-1 break-all font-mono text-sm text-emerald-300"
+                                  title={finding.fixed_version}
+                                >
                                   {finding.fixed_version}
                                 </p>
                               </div>
@@ -435,7 +460,7 @@ export default function SecurityAnalysis({
                                       (alias) => (
                                         <span
                                           key={alias}
-                                          className="rounded-md border border-zinc-800 bg-zinc-950 px-2 py-1 font-mono text-[10px] text-zinc-500"
+                                          className="max-w-full break-all rounded-md border border-zinc-800 bg-zinc-950 px-2 py-1 font-mono text-[10px] text-zinc-500"
                                         >
                                           {alias}
                                         </span>

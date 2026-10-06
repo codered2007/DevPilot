@@ -55,15 +55,15 @@ function DependencyRow({
   dependency: Dependency;
 }) {
   return (
-    <div className="grid grid-cols-[minmax(0,2fr)_minmax(100px,1fr)_110px_90px] items-center gap-4 border-b border-zinc-800/70 px-4 py-3 last:border-b-0">
+    <div className="grid min-w-[620px] grid-cols-[minmax(0,2fr)_minmax(100px,1fr)_110px_90px] items-center gap-4 border-b border-zinc-800/70 px-4 py-3 last:border-b-0">
       <div className="min-w-0">
-        <div className="flex items-center gap-2">
+        <div className="flex min-w-0 items-center gap-2">
           <span className="shrink-0 text-zinc-500">
             {getEcosystemIcon(dependency.ecosystem)}
           </span>
 
           <span
-            className="truncate text-sm font-medium text-zinc-200"
+            className="min-w-0 truncate text-sm font-medium text-zinc-200"
             title={dependency.name}
           >
             {dependency.name}
@@ -78,12 +78,15 @@ function DependencyRow({
         </div>
       </div>
 
-      <div className="truncate font-mono text-xs text-zinc-400">
+      <div
+        className="truncate font-mono text-xs text-zinc-400"
+        title={dependency.version}
+      >
         {dependency.version}
       </div>
 
       <div>
-        <span className="inline-flex rounded-md border border-zinc-800 bg-zinc-950 px-2 py-1 text-[11px] text-zinc-500">
+        <span className="inline-flex whitespace-nowrap rounded-md border border-zinc-800 bg-zinc-950 px-2 py-1 text-[11px] text-zinc-500">
           {getScopeLabel(dependency.scope)}
         </span>
       </div>
@@ -135,20 +138,20 @@ export default function DependencyAnalysis({
     : dependencies.slice(0, 12);
 
   return (
-    <section className="overflow-hidden rounded-2xl border border-zinc-800/80 bg-zinc-900/60">
+    <section className="min-w-0 overflow-hidden rounded-2xl border border-zinc-800/80 bg-zinc-900/60">
       {/* Header */}
-      <div className="flex flex-col gap-4 border-b border-zinc-800/80 bg-zinc-900/80 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex items-start gap-3">
+      <div className="flex min-w-0 flex-col gap-4 border-b border-zinc-800/80 bg-zinc-900/80 px-4 py-4 sm:px-5 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex min-w-0 items-start gap-3">
           <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-zinc-800 bg-zinc-950">
             <Package className="h-4 w-4 text-blue-400" />
           </div>
 
-          <div>
+          <div className="min-w-0">
             <h2 className="text-sm font-semibold text-zinc-200">
               Dependency Analysis
             </h2>
 
-            <p className="mt-1 text-xs text-zinc-600">
+            <p className="mt-1 text-xs leading-5 text-zinc-600">
               Inspect packages, ecosystems, manifests, and scopes.
             </p>
           </div>
@@ -158,7 +161,7 @@ export default function DependencyAnalysis({
           type="button"
           onClick={runAnalysis}
           disabled={loading}
-          className="inline-flex shrink-0 items-center justify-center gap-2 rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-2 text-xs font-medium text-zinc-400 transition-colors hover:border-zinc-700 hover:text-zinc-200 disabled:cursor-not-allowed disabled:opacity-50"
+          className="inline-flex w-full shrink-0 items-center justify-center gap-2 rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-2 text-xs font-medium text-zinc-400 transition-colors hover:border-zinc-700 hover:text-zinc-200 disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto"
         >
           <RefreshCw
             className={`h-3.5 w-3.5 ${
@@ -176,15 +179,15 @@ export default function DependencyAnalysis({
 
       {/* Error */}
       {error && (
-        <div className="mx-5 mt-5 flex items-start gap-3 rounded-xl border border-red-900/60 bg-red-950/20 p-4">
+        <div className="mx-4 mt-5 flex items-start gap-3 rounded-xl border border-red-900/60 bg-red-950/20 p-4 sm:mx-5">
           <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-red-400" />
 
-          <div>
+          <div className="min-w-0">
             <p className="text-sm font-medium text-red-300">
               Dependency analysis failed
             </p>
 
-            <p className="mt-1 text-xs leading-5 text-red-400/70">
+            <p className="mt-1 break-words text-xs leading-5 text-red-400/70">
               {error}
             </p>
           </div>
@@ -211,7 +214,7 @@ export default function DependencyAnalysis({
 
       {/* Results */}
       {analysis && (
-        <div className="p-5">
+        <div className="min-w-0 p-4 sm:p-5">
           {/* Summary */}
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
             <div className="rounded-xl border border-zinc-800/80 bg-zinc-950/50 p-4">
@@ -258,7 +261,7 @@ export default function DependencyAnalysis({
           </div>
 
           {/* Manifests */}
-          <div className="mt-7">
+          <div className="mt-7 min-w-0">
             <div className="mb-3">
               <h3 className="text-sm font-medium text-zinc-200">
                 Manifests
@@ -269,21 +272,22 @@ export default function DependencyAnalysis({
               </p>
             </div>
 
-            <div className="flex flex-wrap gap-2">
+            <div className="flex min-w-0 flex-wrap gap-2">
               {analysis.manifests.map((manifest) => (
                 <div
                   key={manifest.path}
-                  className="flex items-center gap-2 rounded-lg border border-zinc-800 bg-zinc-950/50 px-3 py-2"
+                  title={manifest.path}
+                  className="flex min-w-0 max-w-full items-center gap-2 rounded-lg border border-zinc-800 bg-zinc-950/50 px-3 py-2"
                 >
-                  <span className="text-zinc-500">
+                  <span className="shrink-0 text-zinc-500">
                     {getEcosystemIcon(manifest.ecosystem)}
                   </span>
 
-                  <span className="text-xs text-zinc-300">
+                  <span className="min-w-0 max-w-[240px] truncate text-xs text-zinc-300 sm:max-w-none">
                     {manifest.path}
                   </span>
 
-                  <span className="rounded bg-zinc-900 px-1.5 py-0.5 text-[9px] font-medium uppercase tracking-wide text-zinc-600">
+                  <span className="shrink-0 rounded bg-zinc-900 px-1.5 py-0.5 text-[9px] font-medium uppercase tracking-wide text-zinc-600">
                     {manifest.ecosystem}
                   </span>
                 </div>
@@ -292,22 +296,26 @@ export default function DependencyAnalysis({
           </div>
 
           {/* Dependency Table */}
-          <div className="mt-7 overflow-hidden rounded-xl border border-zinc-800/80">
-            <div className="grid grid-cols-[minmax(0,2fr)_minmax(100px,1fr)_110px_90px] gap-4 border-b border-zinc-800/80 bg-zinc-950/70 px-4 py-3 text-[10px] font-semibold uppercase tracking-wider text-zinc-600">
-              <span>Dependency</span>
-              <span>Version</span>
-              <span>Scope</span>
-              <span>Ecosystem</span>
-            </div>
+          <div className="mt-7 min-w-0">
+            <div className="overflow-x-auto rounded-xl border border-zinc-800/80">
+              <div className="min-w-[620px]">
+                <div className="grid grid-cols-[minmax(0,2fr)_minmax(100px,1fr)_110px_90px] gap-4 border-b border-zinc-800/80 bg-zinc-950/70 px-4 py-3 text-[10px] font-semibold uppercase tracking-wider text-zinc-600">
+                  <span>Dependency</span>
+                  <span>Version</span>
+                  <span>Scope</span>
+                  <span>Ecosystem</span>
+                </div>
 
-            {visibleDependencies.map(
-              (dependency, index) => (
-                <DependencyRow
-                  key={`${dependency.manifest}-${dependency.name}-${dependency.scope}-${index}`}
-                  dependency={dependency}
-                />
-              )
-            )}
+                {visibleDependencies.map(
+                  (dependency, index) => (
+                    <DependencyRow
+                      key={`${dependency.manifest}-${dependency.name}-${dependency.scope}-${index}`}
+                      dependency={dependency}
+                    />
+                  )
+                )}
+              </div>
+            </div>
           </div>
 
           {/* Show More */}
