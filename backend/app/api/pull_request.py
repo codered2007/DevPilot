@@ -1,10 +1,9 @@
-from fastapi import APIRouter, HTTPException
 
+from fastapi import APIRouter, Depends, HTTPException
+
+from app.api.dependencies import get_current_session
 from app.schemas.pull_request import CreatePullRequestRequest
-
-from app.services.github_service import (
-    create_pull_request,
-)
+from app.services.github_service import create_pull_request
 
 
 router = APIRouter(
@@ -16,7 +15,10 @@ router = APIRouter(
 @router.post("/")
 async def create_pull_request_route(
     request: CreatePullRequestRequest,
+    session: dict = Depends(get_current_session),
 ):
+    token = session["access_token"]
+
     result = await create_pull_request(
         request.owner,
         request.repo,
@@ -24,6 +26,7 @@ async def create_pull_request_route(
         request.body,
         request.head,
         request.base,
+        token=token,
     )
 
     if not result:

@@ -8,6 +8,8 @@ import {
 import EmptyState from "../../components/dashboard/EmptyState";
 import RepositoryCard from "../../components/repository/RepositoryCard";
 import RepositoryImport from "../../components/repository/RepositoryImport";
+import { getRepositoryTree } from "../../services/api";
+import { useRepository } from "../../context/useRepository";
 
 interface GithubUser {
   id: number;
@@ -19,6 +21,10 @@ interface GithubUser {
 
 function Dashboard() {
   const [user, setUser] = useState<GithubUser | null>(null);
+  const [fileCount, setFileCount] = useState(0);
+  const [loadingFiles, setLoadingFiles] = useState(false);
+
+  const { repository } = useRepository();
 
   useEffect(() => {
     const fetchCurrentUser = async () => {
@@ -46,6 +52,43 @@ function Dashboard() {
 
     fetchCurrentUser();
   }, []);
+
+  useEffect(() => {
+    const fetchFileCount = async () => {
+      if (!repository) {
+        setFileCount(0);
+        return;
+      }
+
+      try {
+        setLoadingFiles(true);
+
+        const tree = await getRepositoryTree(
+          repository.owner,
+          repository.repo
+        );
+
+        const files = Array.isArray(tree)
+          ? tree.filter(
+              (item: { type: string }) =>
+                item.type === "blob"
+            )
+          : [];
+
+        setFileCount(files.length);
+      } catch (error) {
+        console.error(
+          "Failed to fetch repository file count:",
+          error
+        );
+        setFileCount(0);
+      } finally {
+        setLoadingFiles(false);
+      }
+    };
+
+    fetchFileCount();
+  }, [repository]);
 
   const displayName =
     user?.name || user?.login || "Developer";
@@ -115,7 +158,7 @@ function Dashboard() {
             </p>
 
             <p className="mt-0.5 text-xl font-semibold text-white">
-              1
+              {repository ? 1 : 0}
             </p>
           </div>
         </div>
@@ -156,14 +199,21 @@ function Dashboard() {
         </div>
 
         <div className="grid min-w-0 gap-5 lg:grid-cols-2">
-          <RepositoryCard
-            name="DevPilot"
-            description="AI Software Engineering Workspace"
-            branch="main"
-            stars={15}
-            files={142}
-            indexed={true}
-          />
+          {repository ? (
+            <RepositoryCard
+              name={repository.name}
+              description={repository.description}
+              branch={repository.branch}
+              stars={repository.stars}
+              files={loadingFiles ? 0 : fileCount}
+              indexed={false}
+            />
+          ) : (
+            <EmptyState
+              title="No repository connected"
+              description="Import a GitHub repository to start using DevPilot."
+            />
+          )}
 
           <EmptyState
             title="No AI conversations"

@@ -1,10 +1,11 @@
+
 import re
 import uuid
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 
+from app.api.dependencies import get_current_session
 from app.schemas.apply_code import ApplyCodeRequest
-
 from app.services.github_service import (
     get_default_branch,
     get_branch_sha,
@@ -44,10 +45,14 @@ def create_branch_name(
 @router.post("/")
 async def apply_code(
     request: ApplyCodeRequest,
+    session: dict = Depends(get_current_session),
 ):
+    token = session["access_token"]
+
     default_branch = await get_default_branch(
         request.owner,
         request.repo,
+        token=token,
     )
 
     if not default_branch:
@@ -63,6 +68,7 @@ async def apply_code(
         request.owner,
         request.repo,
         default_branch,
+        token=token,
     )
 
     if not base_sha:
@@ -84,6 +90,7 @@ async def apply_code(
         request.repo,
         branch,
         base_sha,
+        token=token,
     )
 
     if not branch_ref:
@@ -107,6 +114,7 @@ async def apply_code(
         request.code,
         branch,
         commit_message,
+        token=token,
     )
 
     if not result:

@@ -204,6 +204,7 @@ def get_path_score(
     return score
 
 
+
 async def score_file_content(
     owner: str,
     repo: str,
@@ -211,11 +212,13 @@ async def score_file_content(
     query_words: list[str],
     query_text: str,
     filename_score: int,
+    token: str | None = None,
 ):
     file_data = await get_file_content(
         owner,
         repo,
         file["path"],
+        token=token,
     )
 
     score = filename_score
@@ -249,10 +252,12 @@ async def search_repository(
     owner: str,
     repo: str,
     query: str,
+    token: str | None = None,
 ):
     tree = await get_repository_tree(
         owner,
         repo,
+        token=token,
     )
 
     if tree is None:
@@ -266,8 +271,7 @@ async def search_repository(
 
         path = item.get("path", "")
 
-        # Skip files that are unlikely to contain
-        # useful source code.
+        # Skip files unlikely to contain useful source code.
         if path.lower().endswith(
             (
                 ".png",
@@ -286,11 +290,7 @@ async def search_repository(
         ):
             continue
 
-        files.append(
-            {
-                "path": path,
-            }
-        )
+        files.append({"path": path})
 
     query_words = normalize_query(query)
 
@@ -311,26 +311,18 @@ async def search_repository(
             query_words,
             query_text,
         )
-
-        scored_files.append(
-            (
-                score,
-                file,
-            )
-        )
+        scored_files.append((score, file))
 
     scored_files.sort(
         key=lambda item: item[0],
         reverse=True,
     )
 
-    # Take a candidate pool for content-based scoring.
+    # Select candidate files for content-based scoring.
     candidates = [
-        file
-        for score, file in scored_files[:20]
+        file for score, file in scored_files[:20]
     ]
 
-    # If there are too few candidates, add more files.
     if len(candidates) < 10:
         for file in files:
             if file not in candidates:
@@ -339,15 +331,13 @@ async def search_repository(
             if len(candidates) >= 20:
                 break
 
-    # Fetch candidate files concurrently.
     content_tasks = []
 
     for file in candidates:
         filename_score = next(
             (
                 item_score
-                for item_score, item_file
-                in scored_files
+                for item_score, item_file in scored_files
                 if item_file == file
             ),
             0,
@@ -361,6 +351,7 @@ async def search_repository(
                 query_words,
                 query_text,
                 filename_score,
+                token=token,
             )
         )
 
@@ -395,7 +386,6 @@ async def search_repository(
             if file["path"].lower() == priority.lower():
                 if file not in results:
                     results.append(file)
-
                 break
 
     print("Search query:", query)
@@ -453,10 +443,12 @@ async def search_repository_with_content(
     owner: str,
     repo: str,
     query: str,
+    token: str | None = None,
 ):
     tree = await get_repository_tree(
         owner,
         repo,
+        token=token,
     )
 
     if tree is None:
@@ -548,6 +540,7 @@ async def search_repository_with_content(
             owner,
             repo,
             file["path"],
+            token=token,
         )
 
         if not file_data:
@@ -646,6 +639,7 @@ async def search_repository_with_content(
 async def get_repository(
     owner: str,
     repo: str,
+    token: str | None = None,
 ):
     url = (
         f"https://api.github.com/repos/"
@@ -659,7 +653,14 @@ async def get_repository(
         ) as client:
             response = await client.get(
                 url,
-                headers=HEADERS,
+                headers={
+    **HEADERS,
+    **(
+        {"Authorization": f"Bearer {token}"}
+        if token
+        else {}
+    ),
+},
             )
 
         print("=" * 50)
@@ -681,7 +682,11 @@ async def get_repository(
         return None
 
 
-async def get_repository_tree(owner, repo):
+async def get_repository_tree(
+        owner,
+        repo,
+        token: str | None = None,
+):
     url = (
         f"https://api.github.com/repos/"
         f"{owner}/{repo}/git/trees/HEAD?recursive=1"
@@ -695,7 +700,14 @@ async def get_repository_tree(owner, repo):
 
             response = await client.get(
                 url,
-                headers=HEADERS,
+                headers={
+    **HEADERS,
+    **(
+        {"Authorization": f"Bearer {token}"}
+        if token
+        else {}
+    ),
+},
             )
 
             print(
@@ -737,6 +749,7 @@ async def get_file_content(
     owner: str,
     repo: str,
     path: str,
+    token: str | None = None,
 ):
     url = (
         f"https://api.github.com/repos/"
@@ -750,7 +763,14 @@ async def get_file_content(
         ) as client:
             response = await client.get(
                 url,
-                headers=HEADERS,
+                headers={
+    **HEADERS,
+    **(
+        {"Authorization": f"Bearer {token}"}
+        if token
+        else {}
+    ),
+},
             )
 
         if response.status_code != 200:
@@ -772,6 +792,7 @@ async def get_file_content(
 async def get_default_branch(
     owner: str,
     repo: str,
+    token: str | None = None,
 ):
     url = (
         f"https://api.github.com/repos/"
@@ -784,7 +805,10 @@ async def get_default_branch(
         ) as client:
             response = await client.get(
                 url,
-                headers=HEADERS,
+                headers={
+    **HEADERS,
+    **({"Authorization": f"Bearer {token}"} if token else {}),
+},
             )
 
             response.raise_for_status()
@@ -807,6 +831,7 @@ async def get_branch_sha(
     owner: str,
     repo: str,
     branch: str,
+    token: str | None = None,
 ):
     url = (
         f"https://api.github.com/repos/"
@@ -820,7 +845,10 @@ async def get_branch_sha(
         ) as client:
             response = await client.get(
                 url,
-                headers=HEADERS,
+                headers={
+    **HEADERS,
+    **({"Authorization": f"Bearer {token}"} if token else {}),
+},
             )
 
             response.raise_for_status()
@@ -846,6 +874,7 @@ async def create_branch(
     repo: str,
     branch: str,
     base_sha: str,
+    token: str | None = None,
 ):
     url = (
         f"https://api.github.com/repos/"
@@ -863,7 +892,10 @@ async def create_branch(
         ) as client:
             response = await client.post(
                 url,
-                headers=HEADERS,
+                headers={
+    **HEADERS,
+    **({"Authorization": f"Bearer {token}"} if token else {}),
+},
                 json=payload,
             )
 
@@ -890,6 +922,7 @@ async def update_file_on_branch(
     content: str,
     branch: str,
     message: str,
+    token: str | None = None,
 ):
     url = (
         f"https://api.github.com/repos/"
@@ -902,10 +935,11 @@ async def update_file_on_branch(
     ).decode("utf-8")
 
     current_file = await get_file_content(
-        owner,
-        repo,
-        path,
-    )
+    owner,
+    repo,
+    path,
+    token=token,
+)
 
     if not current_file:
         print(
@@ -946,10 +980,17 @@ async def update_file_on_branch(
         ) as client:
 
             response = await client.put(
-                url,
-                headers=HEADERS,
-                json=payload,
-            )
+    url,
+    headers={
+        **HEADERS,
+        **(
+            {"Authorization": f"Bearer {token}"}
+            if token
+            else {}
+        ),
+    },
+    json=payload,
+)
 
             print(
                 "GitHub update status:",
@@ -1014,6 +1055,7 @@ async def create_pull_request(
     body: str,
     head: str,
     base: str,
+    token: str | None = None,
 ):
     url = (
         f"https://api.github.com/repos/"
@@ -1034,7 +1076,14 @@ async def create_pull_request(
 
             response = await client.post(
                 url,
-                headers=HEADERS,
+                headers={
+    **HEADERS,
+    **(
+        {"Authorization": f"Bearer {token}"}
+        if token
+        else {}
+    ),
+},
                 json=payload,
             )
 

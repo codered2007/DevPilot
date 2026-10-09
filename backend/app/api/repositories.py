@@ -1,16 +1,14 @@
-from fastapi import APIRouter, HTTPException
+
+from fastapi import APIRouter, Depends, HTTPException
 
 from app.schemas.repository import RepositoryImportRequest
 from app.services.github_service import (
     get_repository,
     get_repository_tree,
     get_file_content,
-)
-from app.services.github_service import (
-    get_repository,
-    get_repository_tree,
     search_repository,
 )
+from app.api.dependencies import get_current_session
 
 router = APIRouter(
     prefix="/repositories",
@@ -28,6 +26,7 @@ def list_repositories():
 @router.post("/import")
 async def import_repository(
     request: RepositoryImportRequest,
+    session: dict = Depends(get_current_session),
 ):
     parts = request.url.rstrip("/").split("/")
 
@@ -40,7 +39,11 @@ async def import_repository(
     owner = parts[-2]
     repo = parts[-1]
 
-    repository = await get_repository(owner, repo)
+    repository = await get_repository(
+        owner,
+        repo,
+        token=session["access_token"],
+    )
 
     if repository is None:
         raise HTTPException(
@@ -52,10 +55,10 @@ async def import_repository(
         "owner": owner,
         "repo": repo,
         "name": repository["full_name"],
-        "description": repository["description"],
+        "description": repository["description"] or "",
         "stars": repository["stargazers_count"],
         "forks": repository["forks_count"],
-        "language": repository["language"],
+        "language": repository["language"] or "",
         "branch": repository["default_branch"],
     }
 
@@ -64,8 +67,13 @@ async def import_repository(
 async def repository_tree(
     owner: str,
     repo: str,
+    session: dict = Depends(get_current_session),
 ):
-    tree = await get_repository_tree(owner, repo)
+    tree = await get_repository_tree(
+        owner,
+        repo,
+        token=session["access_token"],
+    )
 
     if tree is None:
         raise HTTPException(
@@ -87,8 +95,14 @@ async def repository_file(
     owner: str,
     repo: str,
     path: str,
+    session: dict = Depends(get_current_session),
 ):
-    file = await get_file_content(owner, repo, path)
+    file = await get_file_content(
+        owner,
+        repo,
+        path,
+        token=session["access_token"],
+    )
 
     if file is None:
         raise HTTPException(
@@ -98,14 +112,18 @@ async def repository_file(
 
     return file
 
+
+
 @router.get("/search")
 async def repository_search(
     owner: str,
     repo: str,
     query: str,
+    session: dict = Depends(get_current_session),
 ):
     return await search_repository(
         owner,
         repo,
         query,
+        token=session["access_token"],
     )

@@ -1,4 +1,5 @@
-const API_URL = "http://127.0.0.1:8000";
+
+const API_URL = "http://localhost:8000";
 
 export interface ChatMessage {
   role: "user" | "assistant";
@@ -10,26 +11,34 @@ export interface ChatResponse {
   sources: string[];
 }
 
+export interface RepositoryImportResponse {
+  owner: string;
+  repo: string;
+  name: string;
+  description: string;
+  stars: number;
+  forks: number;
+  language: string;
+  branch: string;
+}
+
 export async function importRepository(
   url: string
-) {
+): Promise<RepositoryImportResponse> {
   const response = await fetch(
     `${API_URL}/repositories/import`,
     {
       method: "POST",
+      credentials: "include",
       headers: {
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({
-        url,
-      }),
+      body: JSON.stringify({ url }),
     }
   );
 
   if (!response.ok) {
-    throw new Error(
-      "Import failed"
-    );
+    throw new Error("Import failed");
   }
 
   return response.json();
@@ -42,13 +51,14 @@ export async function getRepositoryTree(
   const response = await fetch(
     `${API_URL}/repositories/tree?owner=${encodeURIComponent(
       owner
-    )}&repo=${encodeURIComponent(repo)}`
+    )}&repo=${encodeURIComponent(repo)}`,
+    {
+      credentials: "include",
+    }
   );
 
   if (!response.ok) {
-    throw new Error(
-      "Failed to fetch repository tree"
-    );
+    throw new Error("Failed to fetch repository tree");
   }
 
   return response.json();
@@ -64,13 +74,14 @@ export async function getFileContent(
       owner
     )}&repo=${encodeURIComponent(
       repo
-    )}&path=${encodeURIComponent(path)}`
+    )}&path=${encodeURIComponent(path)}`,
+    {
+      credentials: "include",
+    }
   );
 
   if (!response.ok) {
-    throw new Error(
-      "Failed to fetch file"
-    );
+    throw new Error("Failed to fetch file");
   }
 
   return response.json();
@@ -86,6 +97,7 @@ export async function chatWithAI(
     `${API_URL}/chat/`,
     {
       method: "POST",
+      credentials: "include",
       headers: {
         "Content-Type": "application/json",
       },
@@ -99,9 +111,7 @@ export async function chatWithAI(
   );
 
   if (!response.ok) {
-    throw new Error(
-      "AI request failed"
-    );
+    throw new Error("AI request failed");
   }
 
   return response.json();
@@ -114,13 +124,14 @@ export async function getRepositorySummary(
   const response = await fetch(
     `${API_URL}/summary?owner=${encodeURIComponent(
       owner
-    )}&repo=${encodeURIComponent(repo)}`
+    )}&repo=${encodeURIComponent(repo)}`,
+    {
+      credentials: "include",
+    }
   );
 
   if (!response.ok) {
-    throw new Error(
-      "Failed to analyze repository"
-    );
+    throw new Error("Failed to analyze repository");
   }
 
   return response.json();
@@ -136,6 +147,7 @@ export async function explainCode(
     `${API_URL}/explain/`,
     {
       method: "POST",
+      credentials: "include",
       headers: {
         "Content-Type": "application/json",
       },
@@ -149,9 +161,7 @@ export async function explainCode(
   );
 
   if (!response.ok) {
-    throw new Error(
-      "Code explanation failed"
-    );
+    throw new Error("Code explanation failed");
   }
 
   return response.json();
@@ -160,10 +170,7 @@ export async function explainCode(
 export interface CodeActionResponse {
   original_code: string;
   modified_code: string;
-  action:
-    | "fix"
-    | "improve"
-    | "refactor";
+  action: "fix" | "improve" | "refactor";
 }
 
 export async function generateCodeAction(
@@ -171,15 +178,13 @@ export async function generateCodeAction(
   repo: string,
   filePath: string,
   code: string,
-  action:
-    | "fix"
-    | "improve"
-    | "refactor"
+  action: "fix" | "improve" | "refactor"
 ): Promise<CodeActionResponse> {
   const response = await fetch(
     `${API_URL}/code-actions/`,
     {
       method: "POST",
+      credentials: "include",
       headers: {
         "Content-Type": "application/json",
       },
@@ -194,9 +199,7 @@ export async function generateCodeAction(
   );
 
   if (!response.ok) {
-    throw new Error(
-      "Failed to generate code action"
-    );
+    throw new Error("Failed to generate code action");
   }
 
   return response.json();
@@ -207,10 +210,7 @@ export interface ApplyCodeResponse {
   owner: string;
   repo: string;
   file_path: string;
-  action:
-    | "fix"
-    | "improve"
-    | "refactor";
+  action: "fix" | "improve" | "refactor";
   branch: string;
   base_branch: string;
   commit_sha: string;
@@ -222,15 +222,13 @@ export async function applyCodeToGitHub(
   repo: string,
   filePath: string,
   code: string,
-  action:
-    | "fix"
-    | "improve"
-    | "refactor"
+  action: "fix" | "improve" | "refactor"
 ): Promise<ApplyCodeResponse> {
   const response = await fetch(
     `${API_URL}/apply-code/`,
     {
       method: "POST",
+      credentials: "include",
       headers: {
         "Content-Type": "application/json",
       },
@@ -245,12 +243,10 @@ export async function applyCodeToGitHub(
   );
 
   if (!response.ok) {
-    let message =
-      "Failed to apply code to GitHub.";
+    let message = "Failed to apply code to GitHub.";
 
     try {
-      const error =
-        await response.json();
+      const error = await response.json();
 
       if (error.detail) {
         message = error.detail;
@@ -289,6 +285,7 @@ export async function createPullRequest(
     `${API_URL}/pull-request/`,
     {
       method: "POST",
+      credentials: "include",
       headers: {
         "Content-Type": "application/json",
       },
@@ -304,12 +301,10 @@ export async function createPullRequest(
   );
 
   if (!response.ok) {
-    let message =
-      "Failed to create Pull Request.";
+    let message = "Failed to create Pull Request.";
 
     try {
-      const error =
-        await response.json();
+      const error = await response.json();
 
       if (error.detail) {
         message = error.detail;
@@ -325,10 +320,7 @@ export async function createPullRequest(
 }
 
 export interface ReviewFinding {
-  severity:
-    | "high"
-    | "medium"
-    | "low";
+  severity: "high" | "medium" | "low";
   title: string;
   description: string;
   file_path: string;
@@ -351,16 +343,15 @@ export async function reviewRepository(
     )}&repo=${encodeURIComponent(repo)}`,
     {
       method: "POST",
+      credentials: "include",
     }
   );
 
   if (!response.ok) {
-    let message =
-      "Failed to review repository.";
+    let message = "Failed to review repository.";
 
     try {
-      const error =
-        await response.json();
+      const error = await response.json();
 
       if (error.detail) {
         message = error.detail;
@@ -415,16 +406,15 @@ export async function analyzeRepositoryArchitecture(
     )}&repo=${encodeURIComponent(repo)}`,
     {
       method: "POST",
+      credentials: "include",
     }
   );
 
   if (!response.ok) {
-    let message =
-      "Failed to analyze repository architecture.";
+    let message = "Failed to analyze repository architecture.";
 
     try {
-      const error =
-        await response.json();
+      const error = await response.json();
 
       if (error.detail) {
         message = error.detail;
@@ -478,16 +468,15 @@ export async function analyzeRepositoryDependencies(
     )}&repo=${encodeURIComponent(repo)}`,
     {
       method: "POST",
+      credentials: "include",
     }
   );
 
   if (!response.ok) {
-    let message =
-      "Failed to analyze repository dependencies.";
+    let message = "Failed to analyze repository dependencies.";
 
     try {
-      const error =
-        await response.json();
+      const error = await response.json();
 
       if (error.detail) {
         message = error.detail;

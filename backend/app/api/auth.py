@@ -38,9 +38,9 @@ async def github_login():
         )
 
     params = {
-        "client_id": GITHUB_CLIENT_ID,
-        "redirect_uri": GITHUB_CALLBACK_URL,
-        "scope": "read:user user:email",
+    "client_id": GITHUB_CLIENT_ID,
+    "redirect_uri": GITHUB_CALLBACK_URL,
+    "scope": "repo read:user user:email",
     }
 
     authorization_url = (
