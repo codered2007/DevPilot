@@ -1,5 +1,6 @@
 import re
-
+import hashlib
+import json
 import chromadb
 
 from app.services.embedding_service import (
@@ -12,27 +13,31 @@ client = chromadb.PersistentClient(
 )
 
 
+
 def get_collection(
+    user_id: int,
     owner: str,
     repo: str,
 ):
-    collection_name = (
-        f"{owner}_{repo}"
-        .replace("/", "_")
-        .replace("-", "_")
+    identity = json.dumps(
+        [user_id, owner.lower(), repo.lower()],
+        separators=(",", ":"),
     )
+    digest = hashlib.sha256(
+        identity.encode("utf-8")
+    ).hexdigest()
 
     return client.get_or_create_collection(
-        name=collection_name
+        name=f"repo_{digest}"
     )
-
-
 def add_code_chunks(
+    user_id: int,
     owner: str,
     repo: str,
     chunks: list[dict],
 ):
     collection = get_collection(
+        user_id,
         owner,
         repo,
     )
@@ -158,12 +163,14 @@ def _keyword_score(
 
 
 def search_code(
+    user_id: int,
     owner: str,
     repo: str,
     query: str,
     limit: int = 8,
 ):
     collection = get_collection(
+        user_id,
         owner,
         repo,
     )

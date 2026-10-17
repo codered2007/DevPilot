@@ -30,10 +30,13 @@ SKIP_EXTENSIONS = {
 async def index_repository(
     owner: str,
     repo: str,
+    token: str,
+    user_id: int,
 ):
     tree = await get_repository_tree(
         owner,
         repo,
+        token=token,
     )
 
     if tree is None:
@@ -63,6 +66,7 @@ async def index_repository(
             owner,
             repo,
             path,
+            token=token,
         )
 
         if not file_data:
@@ -113,6 +117,7 @@ async def index_repository(
             continue
 
         add_code_chunks(
+            user_id,
             owner,
             repo,
             repository_chunks,

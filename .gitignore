@@ -27,3 +27,6 @@ dist-ssr
 # ChromaDB local vector store
 backend/data/
 structure.txt
+
+# Local SQLite database containing sessions
+backend/devpilot.db

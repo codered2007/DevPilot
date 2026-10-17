@@ -65,6 +65,7 @@ def should_include_file(path: str) -> bool:
 async def build_repository_context(
     owner: str,
     repo: str,
+    token: str,
 ):
     """
     Build a repository context for the AI reviewer.
@@ -78,6 +79,7 @@ async def build_repository_context(
     tree = await get_repository_tree(
         owner,
         repo,
+        token=token,
     )
 
     if not tree:
@@ -113,6 +115,7 @@ async def build_repository_context(
                 owner,
                 repo,
                 path,
+                token=token,
             )
         except Exception as exc:
             print(
@@ -192,6 +195,7 @@ async def build_repository_context(
 async def review_repository(
     owner: str,
     repo: str,
+    token: str,
 ):
     """
     Analyze a GitHub repository and return
@@ -202,6 +206,7 @@ async def review_repository(
         await build_repository_context(
             owner,
             repo,
+            token,
         )
     )
 

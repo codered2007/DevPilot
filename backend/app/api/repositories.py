@@ -1,6 +1,7 @@
-
+import httpx
 from fastapi import APIRouter, Depends, HTTPException
 
+from app.api.dependencies import get_current_session
 from app.schemas.repository import RepositoryImportRequest
 from app.services.github_service import (
     get_repository,
@@ -8,7 +9,6 @@ from app.services.github_service import (
     get_file_content,
     search_repository,
 )
-from app.api.dependencies import get_current_session
 
 router = APIRouter(
     prefix="/repositories",
@@ -17,10 +17,122 @@ router = APIRouter(
 
 
 @router.get("/")
-def list_repositories():
+def list_repositories(
+    session: dict = Depends(get_current_session),
+):
     return {
         "message": "Repository API is working!"
     }
+
+
+async def get_accessible_repository(
+    owner: str,
+    repo: str,
+    token: str,
+):
+    """
+    Verify that the logged-in user's GitHub token can access
+    the requested repository.
+    """
+    try:
+        repository = await get_repository(
+            owner,
+            repo,
+            token=token,
+        )
+
+    except httpx.HTTPStatusError as error:
+        status_code = error.response.status_code
+
+        print(f"GitHub API error: HTTP {status_code}")
+        print(f"GitHub response: {error.response.text}")
+
+        if status_code == 401:
+            raise HTTPException(
+                status_code=401,
+                detail=(
+                    "GitHub authentication failed. "
+                    "Please reconnect your GitHub account."
+                ),
+            ) from error
+
+        if status_code == 403:
+            raise HTTPException(
+                status_code=403,
+                detail="Access to this repository is forbidden.",
+            ) from error
+
+        if status_code == 404:
+            raise HTTPException(
+                status_code=404,
+                detail="Repository not found or access denied.",
+            ) from error
+
+        raise HTTPException(
+            status_code=502,
+            detail=f"GitHub API returned HTTP {status_code}.",
+        ) from error
+
+    except httpx.RequestError as error:
+        print(
+            f"GitHub network error: "
+            f"{type(error).__name__}: {error}"
+        )
+
+        raise HTTPException(
+            status_code=502,
+            detail="Unable to communicate with GitHub.",
+        ) from error
+
+    if repository is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Repository not found or access denied.",
+        )
+
+    return repository
+
+
+async def get_repository_tree_safely(
+    owner: str,
+    repo: str,
+    token: str,
+):
+    try:
+        return await get_repository_tree(
+            owner,
+            repo,
+            token=token,
+        )
+
+    except httpx.HTTPStatusError as error:
+        print(
+            "GitHub tree API error: "
+            f"HTTP {error.response.status_code}"
+        )
+        print(f"GitHub response: {error.response.text}")
+
+        raise HTTPException(
+            status_code=502,
+            detail=(
+                "GitHub returned an unexpected error "
+                "while fetching the repository tree."
+            ),
+        ) from error
+
+    except httpx.RequestError as error:
+        print(
+            f"GitHub tree network error: "
+            f"{type(error).__name__}: {error}"
+        )
+
+        raise HTTPException(
+            status_code=502,
+            detail=(
+                "Unable to communicate with GitHub "
+                "while fetching the repository tree."
+            ),
+        ) from error
 
 
 @router.post("/import")
@@ -38,27 +150,31 @@ async def import_repository(
 
     owner = parts[-2]
     repo = parts[-1]
+    token = session.get("access_token")
 
-    repository = await get_repository(
+    if not token:
+        raise HTTPException(
+            status_code=401,
+            detail=(
+                "GitHub access token is missing. "
+                "Please sign in again."
+            ),
+        )
+
+    repository = await get_accessible_repository(
         owner,
         repo,
-        token=session["access_token"],
+        token,
     )
-
-    if repository is None:
-        raise HTTPException(
-            status_code=404,
-            detail="Repository not found",
-        )
 
     return {
         "owner": owner,
         "repo": repo,
         "name": repository["full_name"],
-        "description": repository["description"] or "",
+        "description": repository.get("description") or "",
         "stars": repository["stargazers_count"],
         "forks": repository["forks_count"],
-        "language": repository["language"] or "",
+        "language": repository.get("language") or "",
         "branch": repository["default_branch"],
     }
 
@@ -69,16 +185,33 @@ async def repository_tree(
     repo: str,
     session: dict = Depends(get_current_session),
 ):
-    tree = await get_repository_tree(
+    token = session.get("access_token")
+
+    if not token:
+        raise HTTPException(
+            status_code=401,
+            detail=(
+                "GitHub access token is missing. "
+                "Please sign in again."
+            ),
+        )
+
+    await get_accessible_repository(
         owner,
         repo,
-        token=session["access_token"],
+        token,
+    )
+
+    tree = await get_repository_tree_safely(
+        owner,
+        repo,
+        token,
     )
 
     if tree is None:
         raise HTTPException(
             status_code=404,
-            detail="Repository tree not found",
+            detail="Repository tree not found.",
         )
 
     return [
@@ -97,21 +230,67 @@ async def repository_file(
     path: str,
     session: dict = Depends(get_current_session),
 ):
-    file = await get_file_content(
+    token = session.get("access_token")
+
+    if not token:
+        raise HTTPException(
+            status_code=401,
+            detail=(
+                "GitHub access token is missing. "
+                "Please sign in again."
+            ),
+        )
+
+    await get_accessible_repository(
         owner,
         repo,
-        path,
-        token=session["access_token"],
+        token,
     )
+
+    try:
+        file = await get_file_content(
+            owner,
+            repo,
+            path,
+            token=token,
+        )
+
+    except httpx.HTTPStatusError as error:
+        print(
+            "GitHub file API error: "
+            f"HTTP {error.response.status_code}"
+        )
+        print(f"GitHub response: {error.response.text}")
+
+        raise HTTPException(
+            status_code=502,
+            detail=(
+                "GitHub returned an unexpected error "
+                "while fetching the file."
+            ),
+        ) from error
+
+    except httpx.RequestError as error:
+        print(
+            f"GitHub file network error: "
+            f"{type(error).__name__}: {error}"
+        )
+
+        raise HTTPException(
+            status_code=502,
+            detail=(
+                "Unable to communicate with GitHub "
+                "while fetching the file."
+            ),
+        ) from error
 
     if file is None:
         raise HTTPException(
             status_code=404,
-            detail="File not found",
+            detail="File not found or access denied.",
         )
 
     return file
-
 
 
 @router.get("/search")
@@ -121,9 +300,56 @@ async def repository_search(
     query: str,
     session: dict = Depends(get_current_session),
 ):
-    return await search_repository(
+    token = session.get("access_token")
+
+    if not token:
+        raise HTTPException(
+            status_code=401,
+            detail=(
+                "GitHub access token is missing. "
+                "Please sign in again."
+            ),
+        )
+
+    await get_accessible_repository(
         owner,
         repo,
-        query,
-        token=session["access_token"],
+        token,
     )
+
+    try:
+        return await search_repository(
+            owner,
+            repo,
+            query,
+            token=token,
+        )
+
+    except httpx.HTTPStatusError as error:
+        print(
+            "GitHub search API error: "
+            f"HTTP {error.response.status_code}"
+        )
+        print(f"GitHub response: {error.response.text}")
+
+        raise HTTPException(
+            status_code=502,
+            detail=(
+                "GitHub returned an error "
+                "while searching the repository."
+            ),
+        ) from error
+
+    except httpx.RequestError as error:
+        print(
+            f"GitHub search network error: "
+            f"{type(error).__name__}: {error}"
+        )
+
+        raise HTTPException(
+            status_code=502,
+            detail=(
+                "Unable to communicate with GitHub "
+                "while searching."
+            ),
+        ) from error

@@ -31,8 +31,10 @@ async def generate_code_action(
     file_path: str,
     code: str,
     action: str,
+    user_id: int,
 ):
     matches = search_code(
+        user_id,
         owner,
         repo,
         code,

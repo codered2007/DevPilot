@@ -512,10 +512,12 @@ def build_dependency_context(
 async def collect_repository_files(
     owner: str,
     repo: str,
+    token: str,
 ):
     tree = await get_repository_tree(
         owner,
         repo,
+        token=token,
     )
 
     if not tree:
@@ -555,6 +557,7 @@ async def collect_repository_files(
                 owner,
                 repo,
                 path,
+                token=token,
             )
 
         except Exception as exc:
@@ -782,11 +785,13 @@ async def generate_architecture_response(
 async def analyze_repository_architecture(
     owner: str,
     repo: str,
+    token: str,
 ):
     files, unavailable_files = (
         await collect_repository_files(
             owner,
             repo,
+            token,
         )
     )
 

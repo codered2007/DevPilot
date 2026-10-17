@@ -14,10 +14,12 @@ async def ask_ai(
     repo: str,
     message: str,
     history: list,
+    user_id: int,
 ):
     # Use the current user question for retrieval.
     # Conversation history is handled separately by Gemini.
     matches = search_code(
+        user_id,
         owner,
         repo,
         message,

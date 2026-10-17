@@ -762,10 +762,12 @@ def parse_manifest(
 async def analyze_repository_dependencies(
     owner: str,
     repo: str,
+    token: str,
 ) -> dict:
     tree = await get_repository_tree(
         owner,
         repo,
+        token=token,
     )
 
     if not tree:
@@ -850,6 +852,7 @@ async def analyze_repository_dependencies(
             owner,
             repo,
             path,
+            token=token,
         )
 
         if not file_data:
@@ -876,6 +879,7 @@ async def analyze_repository_dependencies(
             owner,
             repo,
             manifest["path"],
+            token=token,
         )
 
         if not file_data:

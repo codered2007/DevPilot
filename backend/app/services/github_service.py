@@ -4,20 +4,23 @@ import re
 import base64
 import httpx
 from dotenv import load_dotenv
+from urllib.parse import quote
+
 
 load_dotenv()
-
-GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
-
-print("GitHub token loaded:", bool(GITHUB_TOKEN))
 
 HEADERS = {
     "Accept": "application/vnd.github+json",
     "User-Agent": "DevPilot",
+    "X-GitHub-Api-Version": "2022-11-28",
 }
 
-if GITHUB_TOKEN:
-    HEADERS["Authorization"] = f"Bearer {GITHUB_TOKEN}"
+
+def _user_headers(token: str | None) -> dict[str, str]:
+    """Build GitHub API headers using only the authenticated user token."""
+    if not token:
+        raise ValueError("A GitHub user token is required for repository operations.")
+    return {**HEADERS, "Authorization": f"Bearer {token}"}
 
 
 TIMEOUT = httpx.Timeout(
@@ -248,155 +251,6 @@ async def score_file_content(
     return score, file
 
 
-async def search_repository(
-    owner: str,
-    repo: str,
-    query: str,
-    token: str | None = None,
-):
-    tree = await get_repository_tree(
-        owner,
-        repo,
-        token=token,
-    )
-
-    if tree is None:
-        return []
-
-    files = []
-
-    for item in tree.get("tree", []):
-        if item.get("type") != "blob":
-            continue
-
-        path = item.get("path", "")
-
-        # Skip files unlikely to contain useful source code.
-        if path.lower().endswith(
-            (
-                ".png",
-                ".jpg",
-                ".jpeg",
-                ".gif",
-                ".svg",
-                ".ico",
-                ".lock",
-                ".map",
-                ".woff",
-                ".woff2",
-                ".ttf",
-                ".eot",
-            )
-        ):
-            continue
-
-        files.append({"path": path})
-
-    query_words = normalize_query(query)
-
-    if not query_words:
-        query_words = [
-            word.lower()
-            for word in query.split()
-            if len(word) > 2
-        ]
-
-    query_text = " ".join(query_words)
-
-    scored_files = []
-
-    for file in files:
-        score = get_path_score(
-            file["path"],
-            query_words,
-            query_text,
-        )
-        scored_files.append((score, file))
-
-    scored_files.sort(
-        key=lambda item: item[0],
-        reverse=True,
-    )
-
-    # Select candidate files for content-based scoring.
-    candidates = [
-        file for score, file in scored_files[:20]
-    ]
-
-    if len(candidates) < 10:
-        for file in files:
-            if file not in candidates:
-                candidates.append(file)
-
-            if len(candidates) >= 20:
-                break
-
-    content_tasks = []
-
-    for file in candidates:
-        filename_score = next(
-            (
-                item_score
-                for item_score, item_file in scored_files
-                if item_file == file
-            ),
-            0,
-        )
-
-        content_tasks.append(
-            score_file_content(
-                owner,
-                repo,
-                file,
-                query_words,
-                query_text,
-                filename_score,
-                token=token,
-            )
-        )
-
-    content_scored_files = await asyncio.gather(
-        *content_tasks
-    )
-
-    content_scored_files.sort(
-        key=lambda item: item[0],
-        reverse=True,
-    )
-
-    results = [
-        file
-        for score, file in content_scored_files
-        if score > 0
-    ]
-
-    priority_files = [
-        "README.md",
-        "README",
-        "package.json",
-        "requirements.txt",
-        "pyproject.toml",
-        "setup.py",
-        "Cargo.toml",
-        "go.mod",
-    ]
-
-    for priority in priority_files:
-        for file in files:
-            if file["path"].lower() == priority.lower():
-                if file not in results:
-                    results.append(file)
-                break
-
-    print("Search query:", query)
-    print("Normalized query:", query_words)
-    print(
-        "Search results:",
-        [file["path"] for file in results[:8]],
-    )
-
-    return results[:8]
-
 
 def chunk_code(
     content: str,
@@ -445,6 +299,9 @@ async def search_repository_with_content(
     query: str,
     token: str | None = None,
 ):
+    if not token:
+        return []
+
     tree = await get_repository_tree(
         owner,
         repo,
@@ -636,15 +493,23 @@ async def search_repository_with_content(
     return results[:8]
 
 
+
 async def get_repository(
     owner: str,
     repo: str,
     token: str | None = None,
 ):
-    url = (
-        f"https://api.github.com/repos/"
-        f"{owner}/{repo}"
-    )
+    if not token:
+        return None
+
+    url = f"https://api.github.com/repos/{owner}/{repo}"
+
+    headers = {
+        "Accept": "application/vnd.github+json",
+        "Authorization": f"Bearer {token}",
+        "X-GitHub-Api-Version": "2022-11-28",
+        "User-Agent": "DevPilot",
+    }
 
     try:
         async with httpx.AsyncClient(
@@ -653,97 +518,74 @@ async def get_repository(
         ) as client:
             response = await client.get(
                 url,
-                headers={
-    **HEADERS,
-    **(
-        {"Authorization": f"Bearer {token}"}
-        if token
-        else {}
-    ),
-},
+                headers=headers,
             )
 
-        print("=" * 50)
-        print("GitHub URL:", url)
-        print("Status:", response.status_code)
-        print("=" * 50)
+        if response.status_code == 200:
+            return response.json()
 
-        if response.status_code != 200:
-            print(response.text)
+        if response.status_code == 404:
             return None
 
-        return response.json()
+        if response.status_code in (401, 403):
+            response.raise_for_status()
+        response.raise_for_status()
 
+    except httpx.HTTPStatusError:
+        raise
     except httpx.RequestError as error:
-        print(
-            "GitHub repository request failed:",
-            error,
-        )
-        return None
+        print("GitHub repository request failed:", error)
+        raise
+
+    return None
+
 
 
 async def get_repository_tree(
-        owner,
-        repo,
-        token: str | None = None,
+    owner: str,
+    repo: str,
+    token: str | None = None,
 ):
+    if not token:
+        return None
+
     url = (
         f"https://api.github.com/repos/"
         f"{owner}/{repo}/git/trees/HEAD?recursive=1"
     )
 
+    headers = {
+        "Accept": "application/vnd.github+json",
+        "Authorization": f"Bearer {token}",
+        "X-GitHub-Api-Version": "2022-11-28",
+        "User-Agent": "DevPilot",
+    }
+
     try:
         async with httpx.AsyncClient(
             follow_redirects=True,
             timeout=TIMEOUT,
         ) as client:
-
             response = await client.get(
                 url,
-                headers={
-    **HEADERS,
-    **(
-        {"Authorization": f"Bearer {token}"}
-        if token
-        else {}
-    ),
-},
+                headers=headers,
             )
 
-            print(
-                "GitHub tree status:",
-                response.status_code,
-            )
+            if response.status_code == 404:
+                return None
 
-            print(
-                "GitHub tree response:",
-                response.text[:1000],
-            )
+            if response.status_code in (401, 403):
+                response.raise_for_status()
 
             response.raise_for_status()
-
             return response.json()
 
-    except httpx.HTTPStatusError as exc:
-        print(
-            "GitHub tree request rejected:",
-            exc.response.status_code,
-        )
+    except httpx.HTTPStatusError:
+        raise
 
-        print(
-            "GitHub tree error response:",
-            exc.response.text,
-        )
+    except httpx.RequestError:
+        raise
 
-        return None
-
-    except httpx.RequestError as exc:
-        print(
-            "GitHub tree request failed:",
-            repr(exc),
-        )
-
-        return None
 
 async def get_file_content(
     owner: str,
@@ -751,10 +593,21 @@ async def get_file_content(
     path: str,
     token: str | None = None,
 ):
+    if not token:
+        return None
+
+    encoded_path = quote(path.strip("/"), safe="/")
     url = (
         f"https://api.github.com/repos/"
-        f"{owner}/{repo}/contents/{path}"
+        f"{owner}/{repo}/contents/{encoded_path}"
     )
+
+    headers = {
+        "Accept": "application/vnd.github+json",
+        "Authorization": f"Bearer {token}",
+        "X-GitHub-Api-Version": "2022-11-28",
+        "User-Agent": "DevPilot",
+    }
 
     try:
         async with httpx.AsyncClient(
@@ -763,37 +616,33 @@ async def get_file_content(
         ) as client:
             response = await client.get(
                 url,
-                headers={
-    **HEADERS,
-    **(
-        {"Authorization": f"Bearer {token}"}
-        if token
-        else {}
-    ),
-},
+                headers=headers,
             )
 
-        if response.status_code != 200:
-            print(
-                f"GitHub file request failed "
-                f"({response.status_code}): {path}"
-            )
+        if response.status_code == 404:
             return None
 
+        if response.status_code in (401, 403):
+            response.raise_for_status()
+
+        response.raise_for_status()
         return response.json()
 
-    except httpx.RequestError as error:
-        print(
-            f"GitHub file request failed: "
-            f"{path} — "
-            f"{type(error).__name__}: {error}"
-        )
-        return None
+    except httpx.HTTPStatusError:
+        raise
+
+    except httpx.RequestError:
+        raise
+
+
 async def get_default_branch(
     owner: str,
     repo: str,
     token: str | None = None,
 ):
+    if not token:
+        return None
+
     url = (
         f"https://api.github.com/repos/"
         f"{owner}/{repo}"
@@ -805,10 +654,7 @@ async def get_default_branch(
         ) as client:
             response = await client.get(
                 url,
-                headers={
-    **HEADERS,
-    **({"Authorization": f"Bearer {token}"} if token else {}),
-},
+                headers=_user_headers(token),
             )
 
             response.raise_for_status()
@@ -820,11 +666,8 @@ async def get_default_branch(
             )
 
     except httpx.RequestError as exc:
-        print(
-            f"GitHub request failed: {exc}"
-        )
-
-        return None
+        print(f"GitHub request failed: {exc}")
+        raise
 
 
 async def get_branch_sha(
@@ -833,6 +676,9 @@ async def get_branch_sha(
     branch: str,
     token: str | None = None,
 ):
+    if not token:
+        return None
+
     url = (
         f"https://api.github.com/repos/"
         f"{owner}/{repo}/git/ref/heads/"
@@ -845,10 +691,7 @@ async def get_branch_sha(
         ) as client:
             response = await client.get(
                 url,
-                headers={
-    **HEADERS,
-    **({"Authorization": f"Bearer {token}"} if token else {}),
-},
+                headers=_user_headers(token),
             )
 
             response.raise_for_status()
@@ -862,11 +705,8 @@ async def get_branch_sha(
             )
 
     except httpx.RequestError as exc:
-        print(
-            f"GitHub request failed: {exc}"
-        )
-
-        return None
+        print(f"GitHub request failed: {exc}")
+        raise
 
 
 async def create_branch(
@@ -876,6 +716,9 @@ async def create_branch(
     base_sha: str,
     token: str | None = None,
 ):
+    if not token:
+        return None
+
     url = (
         f"https://api.github.com/repos/"
         f"{owner}/{repo}/git/refs"
@@ -892,10 +735,7 @@ async def create_branch(
         ) as client:
             response = await client.post(
                 url,
-                headers={
-    **HEADERS,
-    **({"Authorization": f"Bearer {token}"} if token else {}),
-},
+                headers=_user_headers(token),
                 json=payload,
             )
 
@@ -907,12 +747,19 @@ async def create_branch(
                 "ref"
             )
 
-    except httpx.RequestError as exc:
-        print(
-            f"GitHub request failed: {exc}"
-        )
+
+    except httpx.HTTPStatusError as exc:
+        print(f"GitHub branch creation rejected: {exc.response.status_code}")
+
+        if exc.response.status_code in (401, 403, 404):
+            raise
 
         return None
+
+    except httpx.RequestError as exc:
+        print(f"GitHub request failed: {exc}")
+        return None
+
 
 
 async def update_file_on_branch(
@@ -924,6 +771,9 @@ async def update_file_on_branch(
     message: str,
     token: str | None = None,
 ):
+    if not token:
+        return None
+
     url = (
         f"https://api.github.com/repos/"
         f"{owner}/{repo}/contents/"
@@ -981,14 +831,7 @@ async def update_file_on_branch(
 
             response = await client.put(
     url,
-    headers={
-        **HEADERS,
-        **(
-            {"Authorization": f"Bearer {token}"}
-            if token
-            else {}
-        ),
-    },
+    headers=_user_headers(token),
     json=payload,
 )
 
@@ -1022,22 +865,16 @@ async def update_file_on_branch(
                 ),
             }
 
+
     except httpx.HTTPStatusError as exc:
-        print(
-            "GitHub rejected file update:"
-        )
+        print("GitHub rejected file update:", exc.response.status_code)
+        print("Response:", exc.response.text)
 
-        print(
-            "Status:",
-            exc.response.status_code,
-        )
-
-        print(
-            "Response:",
-            exc.response.text,
-        )
+        if exc.response.status_code in (401, 403, 404):
+            raise
 
         return None
+
 
     except httpx.RequestError as exc:
         print(
@@ -1057,6 +894,9 @@ async def create_pull_request(
     base: str,
     token: str | None = None,
 ):
+    if not token:
+        return None
+
     url = (
         f"https://api.github.com/repos/"
         f"{owner}/{repo}/pulls"
@@ -1076,14 +916,7 @@ async def create_pull_request(
 
             response = await client.post(
                 url,
-                headers={
-    **HEADERS,
-    **(
-        {"Authorization": f"Bearer {token}"}
-        if token
-        else {}
-    ),
-},
+                headers=_user_headers(token),
                 json=payload,
             )
 
@@ -1105,12 +938,17 @@ async def create_pull_request(
                 "base": data.get("base", {}).get("ref"),
             }
 
+
     except httpx.HTTPStatusError as exc:
         print(
             "GitHub PR creation rejected:",
             exc.response.status_code,
             exc.response.text,
         )
+
+        if exc.response.status_code in (401, 403, 404):
+            raise
+
         return None
 
     except httpx.RequestError as exc:
@@ -1119,3 +957,17 @@ async def create_pull_request(
             exc,
         )
         return None
+
+
+async def search_repository(
+    owner: str,
+    repo: str,
+    query: str,
+    token: str | None = None,
+):
+    """Search repository source files using the authenticated user token."""
+    if not token:
+        return []
+    return await search_repository_with_content(
+        owner, repo, query, token=token
+    )

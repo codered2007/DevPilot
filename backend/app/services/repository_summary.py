@@ -95,6 +95,7 @@ async def fetch_file_context(
     owner: str,
     repo: str,
     item: dict,
+    token: str,
 ):
     file_path = item.get("path", "")
 
@@ -117,6 +118,7 @@ async def fetch_file_context(
             owner,
             repo,
             file_path,
+            token=token,
         )
 
         if not file or "content" not in file:
@@ -141,10 +143,11 @@ CONTENT:
         return None
 
 
-async def summarize_repository(owner: str, repo: str):
+async def summarize_repository(owner: str, repo: str, token: str):
     tree = await get_repository_tree(
         owner,
         repo,
+        token=token,
     )
 
     if tree is None:
@@ -207,6 +210,7 @@ async def summarize_repository(owner: str, repo: str):
                 owner,
                 repo,
                 item,
+                token,
             )
             for item in selected_files
         ]
