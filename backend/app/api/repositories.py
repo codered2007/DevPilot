@@ -16,6 +16,91 @@ router = APIRouter(
 )
 
 
+def _raise_github_http_error(
+    error: httpx.HTTPStatusError,
+    operation: str = "accessing the repository",
+) -> None:
+    """Translate GitHub API errors into safe, consistent HTTP responses."""
+    response = error.response
+    status_code = response.status_code
+
+    try:
+        response_body = response.json()
+        message = (
+            response_body.get("message", "")
+            if isinstance(response_body, dict)
+            else ""
+        )
+    except (ValueError, TypeError):
+        message = ""
+
+    message = message.lower()
+    retry_after = response.headers.get("Retry-After")
+
+
+    is_rate_limited = (
+        status_code == 429
+        or (
+            status_code == 403
+            and (
+                response.headers.get("X-RateLimit-Remaining") == "0"
+                or bool(retry_after)
+                or "rate limit" in message
+                or "secondary rate" in message
+            )
+        )
+    )
+
+    if is_rate_limited:
+        headers = {}
+
+        if retry_after:
+            headers["Retry-After"] = retry_after
+
+        raise HTTPException(
+            status_code=429,
+            detail="GitHub API rate limit reached. Please retry later.",
+            headers=headers,
+        ) from error
+
+    if status_code == 401:
+        raise HTTPException(
+            status_code=401,
+            detail=(
+                "GitHub authentication failed. "
+                "Please reconnect your GitHub account."
+            ),
+        ) from error
+
+    if status_code == 403:
+        raise HTTPException(
+            status_code=403,
+            detail="Access to this repository is forbidden.",
+        ) from error
+
+    if status_code == 404:
+        raise HTTPException(
+            status_code=404,
+            detail="Repository resource not found or access denied.",
+        ) from error
+
+    raise HTTPException(
+        status_code=502,
+        detail=f"GitHub returned an unexpected error while {operation}.",
+    ) from error
+
+
+def _raise_github_network_error(
+    error: httpx.RequestError,
+    operation: str = "accessing the repository",
+) -> None:
+    """Return a safe error without exposing request details."""
+    raise HTTPException(
+        status_code=502,
+        detail=f"Unable to communicate with GitHub while {operation}.",
+    ) from error
+
+
 @router.get("/")
 def list_repositories(
     session: dict = Depends(get_current_session),
@@ -31,9 +116,15 @@ async def get_accessible_repository(
     token: str,
 ):
     """
-    Verify that the logged-in user's GitHub token can access
+    Verify that the authenticated user's GitHub token can access
     the requested repository.
     """
+    if not token:
+        raise HTTPException(
+            status_code=401,
+            detail="GitHub access token is missing. Please sign in again.",
+        )
+
     try:
         repository = await get_repository(
             owner,
@@ -42,47 +133,16 @@ async def get_accessible_repository(
         )
 
     except httpx.HTTPStatusError as error:
-        status_code = error.response.status_code
-
-        print(f"GitHub API error: HTTP {status_code}")
-        print(f"GitHub response: {error.response.text}")
-
-        if status_code == 401:
-            raise HTTPException(
-                status_code=401,
-                detail=(
-                    "GitHub authentication failed. "
-                    "Please reconnect your GitHub account."
-                ),
-            ) from error
-
-        if status_code == 403:
-            raise HTTPException(
-                status_code=403,
-                detail="Access to this repository is forbidden.",
-            ) from error
-
-        if status_code == 404:
-            raise HTTPException(
-                status_code=404,
-                detail="Repository not found or access denied.",
-            ) from error
-
-        raise HTTPException(
-            status_code=502,
-            detail=f"GitHub API returned HTTP {status_code}.",
-        ) from error
-
-    except httpx.RequestError as error:
-        print(
-            f"GitHub network error: "
-            f"{type(error).__name__}: {error}"
+        _raise_github_http_error(
+            error,
+            operation="accessing the repository",
         )
 
-        raise HTTPException(
-            status_code=502,
-            detail="Unable to communicate with GitHub.",
-        ) from error
+    except httpx.RequestError as error:
+        _raise_github_network_error(
+            error,
+            operation="accessing the repository",
+        )
 
     if repository is None:
         raise HTTPException(
@@ -98,6 +158,7 @@ async def get_repository_tree_safely(
     repo: str,
     token: str,
 ):
+    """Fetch the repository tree and translate GitHub errors safely."""
     try:
         return await get_repository_tree(
             owner,
@@ -106,33 +167,16 @@ async def get_repository_tree_safely(
         )
 
     except httpx.HTTPStatusError as error:
-        print(
-            "GitHub tree API error: "
-            f"HTTP {error.response.status_code}"
+        _raise_github_http_error(
+            error,
+            operation="fetching the repository tree",
         )
-        print(f"GitHub response: {error.response.text}")
-
-        raise HTTPException(
-            status_code=502,
-            detail=(
-                "GitHub returned an unexpected error "
-                "while fetching the repository tree."
-            ),
-        ) from error
 
     except httpx.RequestError as error:
-        print(
-            f"GitHub tree network error: "
-            f"{type(error).__name__}: {error}"
+        _raise_github_network_error(
+            error,
+            operation="fetching the repository tree",
         )
-
-        raise HTTPException(
-            status_code=502,
-            detail=(
-                "Unable to communicate with GitHub "
-                "while fetching the repository tree."
-            ),
-        ) from error
 
 
 @router.post("/import")
@@ -145,7 +189,7 @@ async def import_repository(
     if len(parts) < 5:
         raise HTTPException(
             status_code=400,
-            detail="Invalid GitHub URL",
+            detail="Invalid GitHub URL.",
         )
 
     owner = parts[-2]
@@ -256,33 +300,16 @@ async def repository_file(
         )
 
     except httpx.HTTPStatusError as error:
-        print(
-            "GitHub file API error: "
-            f"HTTP {error.response.status_code}"
+        _raise_github_http_error(
+            error,
+            operation="fetching the file",
         )
-        print(f"GitHub response: {error.response.text}")
-
-        raise HTTPException(
-            status_code=502,
-            detail=(
-                "GitHub returned an unexpected error "
-                "while fetching the file."
-            ),
-        ) from error
 
     except httpx.RequestError as error:
-        print(
-            f"GitHub file network error: "
-            f"{type(error).__name__}: {error}"
+        _raise_github_network_error(
+            error,
+            operation="fetching the file",
         )
-
-        raise HTTPException(
-            status_code=502,
-            detail=(
-                "Unable to communicate with GitHub "
-                "while fetching the file."
-            ),
-        ) from error
 
     if file is None:
         raise HTTPException(
@@ -326,30 +353,13 @@ async def repository_search(
         )
 
     except httpx.HTTPStatusError as error:
-        print(
-            "GitHub search API error: "
-            f"HTTP {error.response.status_code}"
+        _raise_github_http_error(
+            error,
+            operation="searching the repository",
         )
-        print(f"GitHub response: {error.response.text}")
-
-        raise HTTPException(
-            status_code=502,
-            detail=(
-                "GitHub returned an error "
-                "while searching the repository."
-            ),
-        ) from error
 
     except httpx.RequestError as error:
-        print(
-            f"GitHub search network error: "
-            f"{type(error).__name__}: {error}"
+        _raise_github_network_error(
+            error,
+            operation="searching the repository",
         )
-
-        raise HTTPException(
-            status_code=502,
-            detail=(
-                "Unable to communicate with GitHub "
-                "while searching."
-            ),
-        ) from error

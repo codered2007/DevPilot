@@ -28,6 +28,28 @@ TIMEOUT = httpx.Timeout(
     connect=10.0,
 )
 
+
+def _is_github_rate_limited(response: httpx.Response) -> bool:
+    """Detect primary and secondary GitHub API rate-limit responses."""
+    if response.status_code == 429:
+        return True
+
+    if response.status_code != 403:
+        return False
+
+    if response.headers.get("Retry-After"):
+        return True
+
+    if response.headers.get("X-RateLimit-Remaining") == "0":
+        return True
+
+    try:
+        message = response.json().get("message", "").lower()
+    except (ValueError, AttributeError):
+        return False
+
+    return "rate limit" in message or "secondary rate" in message
+
 STOP_WORDS = {
     "the",
     "is",
@@ -483,13 +505,6 @@ async def search_repository_with_content(
         if score > 0
     ]
 
-    print("AI search query:", query)
-    print("Normalized query:", query_words)
-    print(
-        "AI search results:",
-        [file["path"] for file in results[:8]],
-    )
-
     return results[:8]
 
 
@@ -504,16 +519,11 @@ async def get_repository(
 
     url = f"https://api.github.com/repos/{owner}/{repo}"
 
-    headers = {
-        "Accept": "application/vnd.github+json",
-        "Authorization": f"Bearer {token}",
-        "X-GitHub-Api-Version": "2022-11-28",
-        "User-Agent": "DevPilot",
-    }
+    headers = _user_headers(token)
 
     try:
         async with httpx.AsyncClient(
-            follow_redirects=True,
+            follow_redirects=False,
             timeout=TIMEOUT,
         ) as client:
             response = await client.get(
@@ -527,14 +537,11 @@ async def get_repository(
         if response.status_code == 404:
             return None
 
-        if response.status_code in (401, 403):
-            response.raise_for_status()
         response.raise_for_status()
 
     except httpx.HTTPStatusError:
         raise
-    except httpx.RequestError as error:
-        print("GitHub repository request failed:", error)
+    except httpx.RequestError:
         raise
 
     return None
@@ -554,16 +561,11 @@ async def get_repository_tree(
         f"{owner}/{repo}/git/trees/HEAD?recursive=1"
     )
 
-    headers = {
-        "Accept": "application/vnd.github+json",
-        "Authorization": f"Bearer {token}",
-        "X-GitHub-Api-Version": "2022-11-28",
-        "User-Agent": "DevPilot",
-    }
+    headers = _user_headers(token)
 
     try:
         async with httpx.AsyncClient(
-            follow_redirects=True,
+            follow_redirects=False,
             timeout=TIMEOUT,
         ) as client:
             response = await client.get(
@@ -573,9 +575,6 @@ async def get_repository_tree(
 
             if response.status_code == 404:
                 return None
-
-            if response.status_code in (401, 403):
-                response.raise_for_status()
 
             response.raise_for_status()
             return response.json()
@@ -602,16 +601,11 @@ async def get_file_content(
         f"{owner}/{repo}/contents/{encoded_path}"
     )
 
-    headers = {
-        "Accept": "application/vnd.github+json",
-        "Authorization": f"Bearer {token}",
-        "X-GitHub-Api-Version": "2022-11-28",
-        "User-Agent": "DevPilot",
-    }
+    headers = _user_headers(token)
 
     try:
         async with httpx.AsyncClient(
-            follow_redirects=True,
+            follow_redirects=False,
             timeout=TIMEOUT,
         ) as client:
             response = await client.get(
@@ -621,9 +615,6 @@ async def get_file_content(
 
         if response.status_code == 404:
             return None
-
-        if response.status_code in (401, 403):
-            response.raise_for_status()
 
         response.raise_for_status()
         return response.json()
@@ -650,7 +641,8 @@ async def get_default_branch(
 
     try:
         async with httpx.AsyncClient(
-            timeout=TIMEOUT
+            follow_redirects=False,
+            timeout=TIMEOUT,
         ) as client:
             response = await client.get(
                 url,
@@ -665,8 +657,7 @@ async def get_default_branch(
                 "default_branch"
             )
 
-    except httpx.RequestError as exc:
-        print(f"GitHub request failed: {exc}")
+    except httpx.RequestError:
         raise
 
 
@@ -687,7 +678,8 @@ async def get_branch_sha(
 
     try:
         async with httpx.AsyncClient(
-            timeout=TIMEOUT
+            follow_redirects=False,
+            timeout=TIMEOUT,
         ) as client:
             response = await client.get(
                 url,
@@ -704,8 +696,7 @@ async def get_branch_sha(
                 .get("sha")
             )
 
-    except httpx.RequestError as exc:
-        print(f"GitHub request failed: {exc}")
+    except httpx.RequestError:
         raise
 
 
@@ -731,7 +722,8 @@ async def create_branch(
 
     try:
         async with httpx.AsyncClient(
-            timeout=TIMEOUT
+            follow_redirects=False,
+            timeout=TIMEOUT,
         ) as client:
             response = await client.post(
                 url,
@@ -747,19 +739,8 @@ async def create_branch(
                 "ref"
             )
 
-
-    except httpx.HTTPStatusError as exc:
-        print(f"GitHub branch creation rejected: {exc.response.status_code}")
-
-        if exc.response.status_code in (401, 403, 404):
-            raise
-
-        return None
-
-    except httpx.RequestError as exc:
-        print(f"GitHub request failed: {exc}")
-        return None
-
+    except httpx.RequestError:
+        raise
 
 
 async def update_file_on_branch(
@@ -774,42 +755,29 @@ async def update_file_on_branch(
     if not token:
         return None
 
+    encoded_path = quote(path.strip("/"), safe="/")
     url = (
         f"https://api.github.com/repos/"
-        f"{owner}/{repo}/contents/"
-        f"{path}"
+        f"{owner}/{repo}/contents/{encoded_path}"
     )
+
+    current_file = await get_file_content(
+        owner,
+        repo,
+        path,
+        token=token,
+    )
+
+    if not current_file:
+        return None
+
+    file_sha = current_file.get("sha")
+    if not file_sha:
+        return None
 
     encoded_content = base64.b64encode(
         content.encode("utf-8")
     ).decode("utf-8")
-
-    current_file = await get_file_content(
-    owner,
-    repo,
-    path,
-    token=token,
-)
-
-    if not current_file:
-        print(
-            "Could not retrieve current file:"
-            f" {path}"
-        )
-        return None
-
-    file_sha = current_file.get("sha")
-
-    print(
-        "Current file SHA:",
-        file_sha,
-    )
-
-    if not file_sha:
-        print(
-            "GitHub did not return a file SHA."
-        )
-        return None
 
     payload = {
         "message": message,
@@ -818,71 +786,31 @@ async def update_file_on_branch(
         "branch": branch,
     }
 
-    print("Updating GitHub file:")
-    print("Repository:", f"{owner}/{repo}")
-    print("Path:", path)
-    print("Branch:", branch)
-    print("Commit message:", message)
-
     try:
         async with httpx.AsyncClient(
-            timeout=TIMEOUT
+            follow_redirects=False,
+            timeout=TIMEOUT,
         ) as client:
-
             response = await client.put(
-    url,
-    headers=_user_headers(token),
-    json=payload,
-)
-
-            print(
-                "GitHub update status:",
-                response.status_code,
+                url,
+                headers=_user_headers(token),
+                json=payload,
             )
-
-            print(
-                "GitHub update response:",
-                response.text,
-            )
-
             response.raise_for_status()
-
             data = response.json()
-
-            commit = data.get(
-                "commit",
-                {}
-            )
+            commit = data.get("commit", {})
 
             return {
                 "path": path,
                 "branch": branch,
-                "commit_sha": commit.get(
-                    "sha"
-                ),
-                "commit_url": commit.get(
-                    "html_url"
-                ),
+                "commit_sha": commit.get("sha"),
+                "commit_url": commit.get("html_url"),
             }
 
-
-    except httpx.HTTPStatusError as exc:
-        print("GitHub rejected file update:", exc.response.status_code)
-        print("Response:", exc.response.text)
-
-        if exc.response.status_code in (401, 403, 404):
-            raise
-
-        return None
-
-
-    except httpx.RequestError as exc:
-        print(
-            "GitHub network request failed:",
-            exc,
-        )
-
-        return None
+    except httpx.HTTPStatusError:
+        raise
+    except httpx.RequestError:
+        raise
 
 
 async def create_pull_request(
@@ -897,11 +825,7 @@ async def create_pull_request(
     if not token:
         return None
 
-    url = (
-        f"https://api.github.com/repos/"
-        f"{owner}/{repo}/pulls"
-    )
-
+    url = f"https://api.github.com/repos/{owner}/{repo}/pulls"
     payload = {
         "title": title,
         "body": body,
@@ -911,22 +835,15 @@ async def create_pull_request(
 
     try:
         async with httpx.AsyncClient(
-            timeout=TIMEOUT
+            follow_redirects=False,
+            timeout=TIMEOUT,
         ) as client:
-
             response = await client.post(
                 url,
                 headers=_user_headers(token),
                 json=payload,
             )
-
-            print(
-                "GitHub PR status:",
-                response.status_code,
-            )
-
             response.raise_for_status()
-
             data = response.json()
 
             return {
@@ -938,25 +855,10 @@ async def create_pull_request(
                 "base": data.get("base", {}).get("ref"),
             }
 
-
-    except httpx.HTTPStatusError as exc:
-        print(
-            "GitHub PR creation rejected:",
-            exc.response.status_code,
-            exc.response.text,
-        )
-
-        if exc.response.status_code in (401, 403, 404):
-            raise
-
-        return None
-
-    except httpx.RequestError as exc:
-        print(
-            "GitHub PR request failed:",
-            exc,
-        )
-        return None
+    except httpx.HTTPStatusError:
+        raise
+    except httpx.RequestError:
+        raise
 
 
 async def search_repository(

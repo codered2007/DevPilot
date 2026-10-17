@@ -1,9 +1,12 @@
-
 import httpx
 from fastapi import APIRouter, Depends, HTTPException
 
 from app.api.dependencies import get_current_session
-from app.api.repositories import get_accessible_repository
+from app.api.repositories import (
+    get_accessible_repository,
+    _raise_github_http_error,
+    _raise_github_network_error,
+)
 from app.schemas.pull_request import CreatePullRequestRequest
 from app.services.github_service import create_pull_request
 
@@ -29,7 +32,7 @@ async def create_pull_request_route(
             ),
         )
 
-    # Verify repository access before creating a pull request.
+    # Verify the authenticated user's repository access first.
     await get_accessible_repository(
         request.owner,
         request.repo,
@@ -51,51 +54,16 @@ async def create_pull_request_route(
         raise
 
     except httpx.HTTPStatusError as error:
-        status_code = error.response.status_code
-
-        if status_code == 401:
-            raise HTTPException(
-                status_code=401,
-                detail=(
-                    "GitHub authentication failed. "
-                    "Please sign in again."
-                ),
-            ) from error
-
-        if status_code == 403:
-            raise HTTPException(
-                status_code=403,
-                detail=(
-                    "You are not authorized to create "
-                    "a pull request."
-                ),
-            ) from error
-
-        if status_code == 404:
-            raise HTTPException(
-                status_code=404,
-                detail=(
-                    "Repository or pull request branch "
-                    "not found."
-                ),
-            ) from error
-
-        raise HTTPException(
-            status_code=502,
-            detail=(
-                "GitHub returned an unexpected error "
-                "while creating the pull request."
-            ),
-        ) from error
+        _raise_github_http_error(
+            error,
+            operation="pull request creation",
+        )
 
     except httpx.RequestError as error:
-        raise HTTPException(
-            status_code=502,
-            detail=(
-                "Unable to communicate with GitHub "
-                "while creating the pull request."
-            ),
-        ) from error
+        _raise_github_network_error(
+            error,
+            operation="pull request creation",
+        )
 
     if not result:
         raise HTTPException(
