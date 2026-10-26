@@ -3,11 +3,15 @@ import json
 import sqlite3
 from pathlib import Path
 
+
 DATABASE_PATH = Path(__file__).resolve().parent.parent / "devpilot.db"
 
 
 def get_connection():
-    connection = sqlite3.connect(DATABASE_PATH)
+    connection = sqlite3.connect(
+        DATABASE_PATH,
+        timeout=10.0,
+    )
     connection.row_factory = sqlite3.Row
     return connection
 
@@ -20,6 +24,19 @@ def initialize_database():
                 session_id TEXT PRIMARY KEY,
                 session_data TEXT NOT NULL,
                 expires_at REAL NOT NULL
+            )
+            """
+        )
+
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS repository_indexes (
+                user_id INTEGER NOT NULL,
+                owner TEXT NOT NULL,
+                repo TEXT NOT NULL,
+                collection_name TEXT NOT NULL,
+                updated_at REAL NOT NULL,
+                PRIMARY KEY (user_id, owner, repo)
             )
             """
         )

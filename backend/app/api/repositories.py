@@ -90,6 +90,7 @@ def _raise_github_http_error(
     ) from error
 
 
+
 def _raise_github_network_error(
     error: httpx.RequestError,
     operation: str = "accessing the repository",
@@ -99,7 +100,6 @@ def _raise_github_network_error(
         status_code=502,
         detail=f"Unable to communicate with GitHub while {operation}.",
     ) from error
-
 
 @router.get("/")
 def list_repositories(

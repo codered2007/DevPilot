@@ -30,3 +30,10 @@ structure.txt
 
 # Local SQLite database containing sessions
 backend/devpilot.db
+
+# Local ChromaDB artifacts
+/data/
+
+# Local review diffs
+/review_diff.txt
+/vector_store_diff.txt
