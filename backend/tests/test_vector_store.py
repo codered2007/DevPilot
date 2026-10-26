@@ -329,3 +329,55 @@ def test_failed_sqlite_publication_preserves_active_index(
     assert old_collection.get(include=["documents"])["documents"] == [
         "known good implementation"
     ]
+
+import threading
+from concurrent.futures import ThreadPoolExecutor
+
+
+def test_inflight_search_survives_reindex(isolated_vector_store, monkeypatch):
+    store = isolated_vector_store
+    user_id, owner, repo = 1, "Owner", "Repo"
+
+    store.replace_code_chunks(
+        user_id, owner, repo,
+        [chunk("old.py", "old searchable implementation")],
+    )
+
+    old_name = active_collection_name(store, user_id, owner, repo)
+    search_has_collection = threading.Event()
+    allow_search_to_continue = threading.Event()
+    original_get_collection = store.get_collection
+
+    def paused_get_collection(*args, **kwargs):
+        collection = original_get_collection(*args, **kwargs)
+        search_has_collection.set()
+        if not allow_search_to_continue.wait(timeout=5):
+            raise TimeoutError("Timed out waiting to resume search")
+        return collection
+
+    monkeypatch.setattr(store, "get_collection", paused_get_collection)
+
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        search_future = executor.submit(
+            store.search_code, user_id, owner, repo, "old searchable"
+        )
+
+        assert search_has_collection.wait(timeout=5)
+
+        store.replace_code_chunks(
+            user_id, owner, repo,
+            [chunk("new.py", "new searchable implementation")],
+        )
+
+        # The old collection must remain available to the in-flight search.
+        assert store.client.get_collection(name=old_name).count() == 1
+
+        allow_search_to_continue.set()
+        results = search_future.result(timeout=10)
+
+    assert results
+    assert any(result.get("path") == "old.py" for result in results)
+
+    new_name = active_collection_name(store, user_id, owner, repo)
+    assert new_name != old_name
+    assert store.client.get_collection(name=new_name).count() == 1
