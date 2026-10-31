@@ -1,8 +1,9 @@
-
 import re
 from typing import Literal
 
 from pydantic import BaseModel, field_validator
+
+from app.schemas.path_validation import validate_safe_file_path
 
 
 class ApplyCodeRequest(BaseModel):
@@ -10,11 +11,7 @@ class ApplyCodeRequest(BaseModel):
     repo: str
     file_path: str
     code: str
-    action: Literal[
-        "fix",
-        "improve",
-        "refactor",
-    ]
+    action: Literal["fix", "improve", "refactor"]
 
     @field_validator("owner", "repo")
     @classmethod
@@ -32,17 +29,4 @@ class ApplyCodeRequest(BaseModel):
     @field_validator("file_path")
     @classmethod
     def validate_file_path(cls, value: str) -> str:
-        value = value.strip()
-
-        if not value or "\\" in value or value.startswith("/"):
-            raise ValueError("Invalid file path.")
-
-        parts = value.split("/")
-
-        if any(part in {"", ".", ".."} for part in parts):
-            raise ValueError("File path contains an unsafe segment.")
-
-        if any("\x00" in part for part in parts):
-            raise ValueError("File path contains an invalid character.")
-
-        return value
+        return validate_safe_file_path(value)

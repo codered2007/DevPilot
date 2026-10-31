@@ -3,7 +3,9 @@ import os
 import secrets
 import time
 from urllib.parse import urlencode
-
+from pydantic import BaseModel
+from fastapi import Depends
+from app.database import delete_user
 import httpx
 from dotenv import load_dotenv
 from fastapi import APIRouter, HTTPException, Request
@@ -14,13 +16,15 @@ from app.database import (
     save_session,
     get_session,
     delete_session,
+    upsert_user,
 )
 
 load_dotenv()
 initialize_database()
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
-
+class AccountDeletionRequest(BaseModel):
+    confirm: bool
 GITHUB_CLIENT_ID = os.getenv("GITHUB_CLIENT_ID")
 GITHUB_CLIENT_SECRET = os.getenv("GITHUB_CLIENT_SECRET")
 
@@ -272,7 +276,7 @@ async def github_callback(
 
     now = time.time()
     session_id = secrets.token_urlsafe(32)
-
+    upsert_user(github_user)
     session_data = {
         "access_token": access_token,
         "github_user": {
@@ -343,6 +347,57 @@ async def logout(request: Request):
     response = JSONResponse(
         content={"message": "Logged out successfully."}
     )
+
+    response.delete_cookie(
+        key=SESSION_COOKIE,
+        path="/",
+        secure=COOKIE_SECURE,
+        httponly=True,
+        samesite="lax",
+    )
+
+    clear_oauth_state_cookie(response)
+
+    return response
+
+@router.delete("/account")
+def delete_account(
+    payload: AccountDeletionRequest,
+    request: Request,
+):
+    from app.api.dependencies import get_current_session
+
+    session = get_current_session(request)
+    if payload.confirm is not True:
+        raise HTTPException(
+            status_code=400,
+            detail="Explicit account deletion confirmation is required.",
+        )
+
+    github_user = session.get("github_user", {})
+    user_id = github_user.get("id")
+
+    if not isinstance(user_id, int) or isinstance(user_id, bool):
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid user identity. Please sign in again.",
+        )
+
+    deleted = delete_user(user_id)
+
+    if not deleted:
+        raise HTTPException(
+            status_code=404,
+            detail="Account not found.",
+        )
+
+    response = JSONResponse(
+    content={
+        "message": "Account deleted successfully.",
+        "chroma_cleanup": "pending",
+        "note": "Repository vector data is queued for cleanup.",
+    }
+)
 
     response.delete_cookie(
         key=SESSION_COOKIE,

@@ -41,23 +41,40 @@ function Topbar() {
     fetchCurrentUser();
   }, []);
 
-  const handleLogout = async () => {
-    setLoggingOut(true);
+  
+const handleLogout = async () => {
+  setLoggingOut(true);
 
-    try {
-      await fetch(
-        "http://localhost:8000/auth/logout",
-        {
-          method: "POST",
-          credentials: "include",
-        }
-      );
-    } catch (error) {
-      console.error("Logout failed:", error);
-    } finally {
-      navigate("/login", { replace: true });
+  try {
+    await fetch(
+      "http://localhost:8000/auth/logout",
+      {
+        method: "POST",
+        credentials: "include",
+      }
+    );
+  } catch (error) {
+    console.error("Logout failed:", error);
+  } finally {
+    // Clear in-memory review-fix state in mounted components.
+    window.dispatchEvent(new Event("devpilot-logout"));
+    // Remove temporary review-fix data.
+    sessionStorage.removeItem("devpilot_review_fix");
+   
+    // Clear DevPilot-specific browser storage.
+    for (const key of Object.keys(localStorage)) {
+      if (
+        key.startsWith("devpilot_repository:") ||
+        key.startsWith("devpilot-review-history:") ||
+        key.startsWith("devpilot-review-status:")
+      ) {
+        localStorage.removeItem(key);
+      }
     }
-  };
+
+    navigate("/login", { replace: true });
+  }
+};
 
   const displayName =
     user?.name || user?.login || "Developer";

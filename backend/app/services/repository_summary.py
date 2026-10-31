@@ -305,10 +305,7 @@ Selected Repository Files:
         return response.text
 
     except Exception:
-        print("\n" + "=" * 80)
-        print("Gemini Request Failed")
-        traceback.print_exc()
-        print("=" * 80 + "\n")
+        print("Gemini request failed during repository summary generation.")
 
         return (
             "⚠️ Gemini is temporarily unavailable.\n\n"

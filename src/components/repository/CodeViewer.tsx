@@ -172,16 +172,14 @@ function CodeViewer({
     setExplanationError("");
   }, [fileName]);
 
+  
   useEffect(() => {
     function handleReviewFix(event: Event) {
       const customEvent =
         event as CustomEvent<ReviewFixEventDetail>;
-
       const detail = customEvent.detail;
 
-      if (!detail) {
-        return;
-      }
+      if (!detail) return;
 
       setActionError("");
       setApplyError("");
@@ -193,9 +191,24 @@ function CodeViewer({
       setActionCode(detail.modifiedCode);
     }
 
+    function handleDevPilotLogout() {
+      setCodeAction(null);
+      setCompletedAction(null);
+      setActionCode("");
+      setActionError("");
+      setApplyError("");
+      setGithubResult(null);
+      setPullRequestResult(null);
+      setPullRequestError("");
+    }
+
     window.addEventListener(
       "devpilot-review-fix",
       handleReviewFix
+    );
+    window.addEventListener(
+      "devpilot-logout",
+      handleDevPilotLogout
     );
 
     return () => {
@@ -203,8 +216,13 @@ function CodeViewer({
         "devpilot-review-fix",
         handleReviewFix
       );
+      window.removeEventListener(
+        "devpilot-logout",
+        handleDevPilotLogout
+      );
     };
   }, []);
+
 
   async function copyCode() {
     if (!file) return;

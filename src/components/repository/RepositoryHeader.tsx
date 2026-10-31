@@ -41,7 +41,6 @@ function RepositoryHeader({ repository }: Props) {
         repository.repo
       );
 
-      console.log(result.summary);
       setSummary(result.summary);
     } catch (err) {
       console.error(err);

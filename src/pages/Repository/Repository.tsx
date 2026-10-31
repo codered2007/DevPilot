@@ -59,9 +59,48 @@ type ReviewFindingStatus =
 type ReviewFindingStatuses = Record<string, ReviewFindingStatus>;
 
 
-function Repository() {
 
+function Repository() {
   const { repository } = useRepository();
+  const [githubLogin, setGithubLogin] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadCurrentUser() {
+      try {
+        const response = await fetch(
+          "http://localhost:8000/auth/me",
+          { credentials: "include" }
+        );
+
+        if (!response.ok) {
+          if (!cancelled) setGithubLogin(null);
+          return;
+        }
+
+        const data = await response.json();
+        const login = data?.user?.login;
+
+        if (!cancelled) {
+          setGithubLogin(
+            typeof login === "string" && login.trim()
+              ? login.toLowerCase()
+              : null
+          );
+        }
+      } catch (error) {
+        console.error("Failed to load current user:", error);
+        if (!cancelled) setGithubLogin(null);
+      }
+    }
+
+    void loadCurrentUser();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
 
   const [files, setFiles] = useState<FileItem[]>([]);
@@ -203,7 +242,7 @@ const getFindingKey = (
     finding: (typeof reviewFindings)[number],
     status: ReviewFindingStatus
   ) {
-    if (!repository) return;
+    if (!repository || !githubLogin) return;
 
     const key = getFindingKey(finding);
     const updatedStatuses = {
@@ -212,7 +251,7 @@ const getFindingKey = (
     };
 
     const storageKey =
-      `devpilot-review-status:${repository.owner}/${repository.repo}`;
+  `devpilot-review-status:${githubLogin}:${repository.owner}/${repository.repo}`;
 
     localStorage.setItem(
       storageKey,
@@ -400,7 +439,7 @@ const persistentFindings =
    */
   useEffect(() => {
 
-    if (!repository) {
+    if (!repository || !githubLogin) {
       setReviewHistory([]);
       setSelectedHistoryIndex(null);
       return;
@@ -408,7 +447,7 @@ const persistentFindings =
 
 
     const storageKey =
-      `devpilot-review-history:${repository.owner}/${repository.repo}`;
+  `devpilot-review-history:${githubLogin}:${repository.owner}/${repository.repo}`;
 
 
     try {
@@ -458,17 +497,17 @@ const persistentFindings =
 
     }
 
-  }, [repository]);
+  }, [repository, githubLogin]);
 
 
   useEffect(() => {
-    if (!repository) {
-      setFindingStatuses({});
-      return;
-    }
+    if (!repository || !githubLogin) {
+  setFindingStatuses({});
+  return;
+}
 
     const storageKey =
-      `devpilot-review-status:${repository.owner}/${repository.repo}`;
+  `devpilot-review-status:${githubLogin}:${repository.owner}/${repository.repo}`;
 
     try {
       const stored = localStorage.getItem(storageKey);
@@ -492,7 +531,7 @@ const persistentFindings =
       );
       setFindingStatuses({});
     }
-  }, [repository]);
+  }, [repository, githubLogin]);
 
 
   /*
@@ -516,12 +555,6 @@ const persistentFindings =
             repository.owner,
             repository.repo
           );
-
-
-        console.log(
-          "Repository tree:",
-          tree
-        );
 
 
         setFiles(tree);
@@ -558,12 +591,6 @@ const persistentFindings =
   async function handleSelectFile(
     path: string
   ) {
-
-    console.log(
-      "Selected file path:",
-      path
-    );
-
 
     if (!path) {
 
@@ -655,7 +682,7 @@ const persistentFindings =
    */
   async function handleReviewRepository() {
 
-    if (!repository) return;
+    if (!repository || !githubLogin) return;
 
 
     try {
@@ -689,8 +716,7 @@ const persistentFindings =
        * local history.
        */
       const storageKey =
-        `devpilot-review-history:${repository.owner}/${repository.repo}`;
-
+  `devpilot-review-history:${githubLogin}:${repository.owner}/${repository.repo}`;
 
       const reviewEntry: ReviewHistoryEntry = {
         ...result,
@@ -953,12 +979,11 @@ const persistentFindings =
     index: number
   ) {
 
-    if (!repository) return;
+    if (!repository || !githubLogin) return;
 
 
     const storageKey =
-      `devpilot-review-history:${repository.owner}/${repository.repo}`;
-
+  `devpilot-review-history:${githubLogin}:${repository.owner}/${repository.repo}`;
 
     const updatedHistory =
       reviewHistory.filter(

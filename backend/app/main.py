@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-
+from app.api.workspaces import router as workspaces_router
 from app.api.repositories import router as repository_router
 from app.api.chat import router as chat_router
 from app.api.summary import router as summary_router
@@ -56,7 +56,7 @@ app.include_router(architecture_analysis_router)
 app.include_router(dependency_analysis_router)
 app.include_router(security_analysis_router)
 app.include_router(auth_router)
-
+app.include_router(workspaces_router)
 
 @app.get("/")
 def root():

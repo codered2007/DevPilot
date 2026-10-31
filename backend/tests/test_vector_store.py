@@ -381,3 +381,47 @@ def test_inflight_search_survives_reindex(isolated_vector_store, monkeypatch):
     new_name = active_collection_name(store, user_id, owner, repo)
     assert new_name != old_name
     assert store.client.get_collection(name=new_name).count() == 1
+
+
+def test_search_results_are_isolated_between_users(isolated_vector_store):
+    store = isolated_vector_store
+
+    store.replace_code_chunks(
+        101,
+        "Owner",
+        "Repo",
+        [chunk("private_a.py", "alpha_secret_marker")],
+    )
+    store.replace_code_chunks(
+        202,
+        "Owner",
+        "Repo",
+        [chunk("private_b.py", "beta_secret_marker")],
+    )
+
+    user_a_results = store.search_code(
+        101, "Owner", "Repo", "alpha_secret_marker"
+    )
+    user_b_results = store.search_code(
+        202, "Owner", "Repo", "beta_secret_marker"
+    )
+
+    assert user_a_results
+    assert all(
+        result["path"] == "private_a.py"
+        for result in user_a_results
+    )
+    assert all(
+        "beta_secret_marker" not in result["content"]
+        for result in user_a_results
+    )
+
+    assert user_b_results
+    assert all(
+        result["path"] == "private_b.py"
+        for result in user_b_results
+    )
+    assert all(
+        "alpha_secret_marker" not in result["content"]
+        for result in user_b_results
+    )
