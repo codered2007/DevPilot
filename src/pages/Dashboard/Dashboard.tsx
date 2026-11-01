@@ -1,14 +1,25 @@
+
 import { useEffect, useState } from "react";
 import {
   ArrowUpRight,
   GitBranch,
   Sparkles,
+  Clock3,
+  ExternalLink,
+  Loader2,
 } from "lucide-react";
+import { useNavigate } from "react-router-dom";
 
 import EmptyState from "../../components/dashboard/EmptyState";
 import RepositoryCard from "../../components/repository/RepositoryCard";
 import RepositoryImport from "../../components/repository/RepositoryImport";
-import { getRepositoryTree } from "../../services/api";
+import {
+  getRepositoryTree,
+  getRepositoryHistory,
+  importRepository,
+  recordRepositoryOpen,
+  type RepositoryHistoryItem,
+} from "../../services/api";
 import { useRepository } from "../../context/useRepository";
 
 interface GithubUser {
@@ -24,17 +35,24 @@ function Dashboard() {
   const [fileCount, setFileCount] = useState(0);
   const [loadingFiles, setLoadingFiles] = useState(false);
 
-  const { repository } = useRepository();
+  const [history, setHistory] = useState<RepositoryHistoryItem[]>([]);
+  const [loadingHistory, setLoadingHistory] = useState(true);
+  const [historyError, setHistoryError] = useState("");
+  const [openError, setOpenError] = useState("");
+  const [openingRepository, setOpeningRepository] = useState<string | null>(
+    null
+  );
 
+  const { repository, setRepository } = useRepository();
+  const navigate = useNavigate();
+
+  // Fetch authenticated user
   useEffect(() => {
     const fetchCurrentUser = async () => {
       try {
-        const response = await fetch(
-          "http://localhost:8000/auth/me",
-          {
-            credentials: "include",
-          }
-        );
+        const response = await fetch("http://localhost:8000/auth/me", {
+          credentials: "include",
+        });
 
         if (!response.ok) {
           return;
@@ -43,17 +61,51 @@ function Dashboard() {
         const data = await response.json();
         setUser(data.user);
       } catch (error) {
-        console.error(
-          "Failed to fetch authenticated user:",
-          error
-        );
+        console.error("Failed to fetch authenticated user:", error);
       }
     };
 
-    fetchCurrentUser();
+    void fetchCurrentUser();
   }, []);
 
+  // Load repository history
   useEffect(() => {
+    let cancelled = false;
+
+    async function loadHistory() {
+      try {
+        setLoadingHistory(true);
+        setHistoryError("");
+
+        const repositories = await getRepositoryHistory();
+
+        if (!cancelled) {
+          setHistory(repositories);
+        }
+      } catch (error) {
+        console.error("Failed to load repository history:", error);
+
+        if (!cancelled) {
+          setHistoryError("Unable to load repository history.");
+        }
+      } finally {
+        if (!cancelled) {
+          setLoadingHistory(false);
+        }
+      }
+    }
+
+    void loadHistory();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // Fetch current repository file count
+  useEffect(() => {
+    let cancelled = false;
+
     const fetchFileCount = async () => {
       if (!repository) {
         setFileCount(0);
@@ -70,28 +122,74 @@ function Dashboard() {
 
         const files = Array.isArray(tree)
           ? tree.filter(
-              (item: { type: string }) =>
-                item.type === "blob"
+              (item: { type: string }) => item.type === "blob"
             )
           : [];
 
-        setFileCount(files.length);
+        if (!cancelled) {
+          setFileCount(files.length);
+        }
       } catch (error) {
-        console.error(
-          "Failed to fetch repository file count:",
-          error
-        );
-        setFileCount(0);
+        console.error("Failed to fetch repository file count:", error);
+
+        if (!cancelled) {
+          setFileCount(0);
+        }
       } finally {
-        setLoadingFiles(false);
+        if (!cancelled) {
+          setLoadingFiles(false);
+        }
       }
     };
 
-    fetchFileCount();
+    void fetchFileCount();
+
+    return () => {
+      cancelled = true;
+    };
   }, [repository]);
 
-  const displayName =
-    user?.name || user?.login || "Developer";
+  // Reopen a repository from history
+  const handleOpenHistory = async (item: RepositoryHistoryItem) => {
+    const repositoryKey = `${item.owner}/${item.repo}`;
+
+    try {
+      setOpeningRepository(repositoryKey);
+      setOpenError("");
+
+      // Fetch complete repository details and verify access
+      const reopenedRepository = await importRepository(
+        `https://github.com/${item.owner}/${item.repo}`
+      );
+
+      setRepository(reopenedRepository);
+
+      // Update its last-opened timestamp
+      try {
+        await recordRepositoryOpen(item.owner, item.repo);
+
+        const updatedHistory = await getRepositoryHistory();
+        setHistory(updatedHistory);
+      } catch (historyUpdateError) {
+        console.error(
+          "Failed to update repository history:",
+          historyUpdateError
+        );
+      }
+
+      navigate("/dashboard/repository");
+    } catch (error) {
+      console.error("Failed to reopen repository:", error);
+
+      setOpenError(
+        `Could not open ${repositoryKey}. It may have been deleted, made private, or you may no longer have access.`
+      );
+    } finally {
+      setOpeningRepository(null);
+    }
+  };
+
+  const displayName = user?.name || user?.login || "Developer";
 
   return (
     <div className="mx-auto w-full max-w-[1440px] space-y-6 sm:space-y-8">
@@ -177,6 +275,88 @@ function Dashboard() {
         </div>
 
         <RepositoryImport />
+      </section>
+
+      {/* Recently opened repositories */}
+      <section className="min-w-0">
+        <div className="mb-4">
+          <h2 className="flex items-center gap-2 text-lg font-semibold tracking-tight text-white">
+            <Clock3 className="h-5 w-5 text-blue-400" />
+            Recently opened
+          </h2>
+
+          <p className="mt-1 text-sm leading-5 text-zinc-500">
+            Quickly reopen repositories you have worked on.
+          </p>
+        </div>
+
+        {openError && (
+          <div className="mb-4 rounded-lg border border-red-500/20 bg-red-500/5 px-4 py-3 text-sm text-red-400">
+            {openError}
+          </div>
+        )}
+
+        {loadingHistory ? (
+          <div className="flex items-center gap-2 rounded-xl border border-zinc-800 bg-zinc-900/30 p-5 text-sm text-zinc-400">
+            <Loader2 className="h-4 w-4 animate-spin" />
+            Loading repository history...
+          </div>
+        ) : historyError ? (
+          <div className="rounded-xl border border-zinc-800 bg-zinc-900/30 p-5 text-sm text-red-400">
+            {historyError}
+          </div>
+        ) : history.length === 0 ? (
+          <div className="rounded-xl border border-zinc-800 bg-zinc-900/30 p-5 text-sm text-zinc-500">
+            No recently opened repositories yet. Import a repository to get
+            started.
+          </div>
+        ) : (
+          <div className="grid min-w-0 gap-4 md:grid-cols-2">
+            {history.map((item) => {
+              const repositoryKey = `${item.owner}/${item.repo}`;
+              const isOpening = openingRepository === repositoryKey;
+
+              return (
+                <div
+                  key={repositoryKey}
+                  className="flex min-w-0 items-center justify-between gap-4 rounded-xl border border-zinc-800 bg-zinc-900/40 p-4 transition-colors hover:border-zinc-700"
+                >
+                  <div className="min-w-0">
+                    <p className="truncate font-medium text-white">
+                      {repositoryKey}
+                    </p>
+
+                    <p className="mt-1 truncate text-sm text-zinc-500">
+                      {item.description || "No description available"}
+                    </p>
+
+                    <p className="mt-2 text-xs text-zinc-600">
+                      Last opened:{" "}
+                      {new Date(
+                        item.last_opened_at * 1000
+                      ).toLocaleString()}
+                    </p>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => void handleOpenHistory(item)}
+                    disabled={openingRepository !== null}
+                    className="flex shrink-0 items-center gap-2 rounded-lg border border-blue-500/20 bg-blue-500/10 px-3 py-2 text-sm font-medium text-blue-400 transition-colors hover:bg-blue-500/20 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {isOpening ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <ExternalLink className="h-4 w-4" />
+                    )}
+
+                    {isOpening ? "Opening..." : "Open"}
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        )}
       </section>
 
       {/* Workspace */}

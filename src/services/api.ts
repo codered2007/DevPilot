@@ -44,6 +44,64 @@ export async function importRepository(
   return response.json();
 }
 
+export interface RepositoryHistoryItem {
+  owner: string;
+  repo: string;
+  name: string;
+  description: string;
+  last_opened_at: number;
+}
+
+export async function getRepositoryHistory(): Promise<
+  RepositoryHistoryItem[]
+> {
+  const response = await fetch(
+    `${API_URL}/repositories/history`,
+    {
+      credentials: "include",
+    }
+  );
+
+  if (!response.ok) {
+    throw new Error("Failed to fetch repository history");
+  }
+
+  const data = await response.json();
+  return data.repositories;
+}
+
+export async function recordRepositoryOpen(
+  owner: string,
+  repo: string
+): Promise<void> {
+  const response = await fetch(
+    `${API_URL}/repositories/history`,
+    {
+      method: "POST",
+      credentials: "include",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ owner, repo }),
+    }
+  );
+
+  if (!response.ok) {
+    let message = "Failed to record repository history";
+
+    try {
+      const error = await response.json();
+      if (error.detail) message = error.detail;
+    } catch {
+      // Keep default error message.
+    }
+
+    throw new Error(message);
+  }
+}
+
+
+
 export async function getRepositoryTree(
   owner: string,
   repo: string

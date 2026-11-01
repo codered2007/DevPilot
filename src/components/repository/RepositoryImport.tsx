@@ -14,7 +14,10 @@ import { useNavigate } from "react-router-dom";
 
 import Button from "../ui/Button";
 import Input from "../ui/Input";
-import { importRepository } from "../../services/api";
+import {
+  importRepository,
+  recordRepositoryOpen,
+} from "../../services/api";
 import { useRepository } from "../../context/useRepository";
 
 function RepositoryImport() {
@@ -25,29 +28,37 @@ function RepositoryImport() {
   const { repository, setRepository } = useRepository();
   const navigate = useNavigate();
 
-  async function handleImport() {
-    if (!url.trim()) {
-      setError("Please enter a GitHub repository URL.");
-      return;
-    }
-
-    try {
-      setLoading(true);
-      setError("");
-
-      const importedRepository = await importRepository(url);
-
-      setRepository(importedRepository);
-
-      navigate("/dashboard/repository");
-    } catch (err) {
-      console.error(err);
-      setError("Repository not found or GitHub API request failed.");
-    } finally {
-      setLoading(false);
-    }
+async function handleImport() {
+  if (!url.trim()) {
+    setError("Please enter a GitHub repository URL.");
+    return;
   }
 
+  try {
+    setLoading(true);
+    setError("");
+
+    const importedRepository = await importRepository(url);
+
+    setRepository(importedRepository);
+
+    try {
+      await recordRepositoryOpen(
+        importedRepository.owner,
+        importedRepository.repo
+      );
+    } catch (historyError) {
+      console.error("Failed to record repository history:", historyError);
+    }
+
+    navigate("/dashboard/repository");
+  } catch (err) {
+    console.error(err);
+    setError("Repository not found or GitHub API request failed.");
+  } finally {
+    setLoading(false);
+  }
+}
   return (
     <div className="overflow-hidden rounded-2xl border border-zinc-800 bg-[#111418]">
       {/* Import form */}
@@ -173,7 +184,18 @@ function RepositoryImport() {
             <Button
               variant="secondary"
               className="shrink-0 gap-2"
-              onClick={() => navigate("/dashboard/repository")}
+              onClick={async () => {
+  try {
+    await recordRepositoryOpen(
+      repository.owner,
+      repository.repo
+    );
+  } catch (historyError) {
+    console.error("Failed to record repository history:", historyError);
+  }
+
+  navigate("/dashboard/repository");
+}}
             >
               Open repository
               <ArrowRight className="h-4 w-4" />

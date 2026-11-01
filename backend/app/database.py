@@ -5,7 +5,7 @@ from pathlib import Path
 import time
 
 DATABASE_PATH = Path(__file__).resolve().parent.parent / "devpilot.db"
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 def migrate_to_v1(connection):
     connection.execute("""
@@ -70,11 +70,32 @@ def migrate_to_v3(connection):
         CREATE INDEX IF NOT EXISTS idx_chroma_cleanup_user_id
         ON chroma_cleanup_queue(user_id)
     """)
+def migrate_to_v4(connection):
+    connection.execute("""
+    CREATE TABLE IF NOT EXISTS repository_history (
+        user_id INTEGER NOT NULL,
+        owner TEXT NOT NULL COLLATE NOCASE,
+        repo TEXT NOT NULL COLLATE NOCASE,
+        name TEXT NOT NULL,
+        description TEXT NOT NULL DEFAULT '',
+        last_opened_at REAL NOT NULL,
+        PRIMARY KEY (user_id, owner, repo),
+        FOREIGN KEY (user_id)
+            REFERENCES users(github_id)
+            ON DELETE CASCADE
+    )
+""")
+
+    connection.execute("""
+        CREATE INDEX IF NOT EXISTS idx_repository_history_user
+        ON repository_history(user_id, last_opened_at DESC)
+    """)
 
 MIGRATIONS = {
     1: migrate_to_v1,
     2: migrate_to_v2,
     3: migrate_to_v3,
+     4: migrate_to_v4,
 }
 
 
@@ -474,3 +495,77 @@ def fail_chroma_cleanup(collection_name: str, error: str) -> bool:
         )
 
     return cursor.rowcount > 0
+
+
+
+def record_repository_open(
+    user_id: int,
+    owner: str,
+    repo: str,
+    name: str,
+    description: str = "",
+) -> None:
+    """Record a repository opening or update its last-opened timestamp."""
+
+    if not isinstance(user_id, int) or isinstance(user_id, bool):
+        raise ValueError("Invalid user ID.")
+
+    if not all(
+        isinstance(value, str) and value.strip()
+        for value in (owner, repo, name)
+    ):
+        raise ValueError("Repository owner, name, and display name are required.")
+
+    if not isinstance(description, str):
+        raise ValueError("Invalid repository description.")
+
+    now = time.time()
+
+    with get_connection() as connection:
+        connection.execute(
+            """
+            INSERT INTO repository_history (
+                user_id, owner, repo, name, description, last_opened_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?)
+            ON CONFLICT(user_id, owner, repo) DO UPDATE SET
+                name = excluded.name,
+                description = excluded.description,
+                last_opened_at = excluded.last_opened_at
+            """,
+            (
+                user_id,
+                owner.strip(),
+                repo.strip(),
+                name.strip(),
+                description.strip(),
+                now,
+            ),
+        )
+
+
+def get_repository_history(
+    user_id: int,
+    limit: int = 10,
+) -> list[dict]:
+    """Return a user's recently opened repositories."""
+
+    if not isinstance(user_id, int) or isinstance(user_id, bool):
+        raise ValueError("Invalid user ID.")
+
+    if not isinstance(limit, int) or isinstance(limit, bool) or limit < 1:
+        raise ValueError("History limit must be a positive integer.")
+
+    with get_connection() as connection:
+        rows = connection.execute(
+            """
+            SELECT owner, repo, name, description, last_opened_at
+            FROM repository_history
+            WHERE user_id = ?
+            ORDER BY last_opened_at DESC
+            LIMIT ?
+            """,
+            (user_id, limit),
+        ).fetchall()
+
+    return [dict(row) for row in rows]

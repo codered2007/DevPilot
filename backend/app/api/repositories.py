@@ -1,6 +1,13 @@
 import httpx
 from fastapi import APIRouter, Depends, HTTPException
-
+from app.database import (
+    record_repository_open,
+    get_repository_history,
+)
+from app.schemas.repository import (
+    RepositoryImportRequest,
+    RepositoryHistoryRequest,
+)
 from app.api.dependencies import get_current_session
 from app.schemas.repository import RepositoryImportRequest
 from app.services.github_service import (
@@ -152,6 +159,76 @@ async def get_accessible_repository(
 
     return repository
 
+@router.get("/history")
+def list_repository_history(
+    session: dict = Depends(get_current_session),
+):
+    github_user = session.get("github_user", {})
+    user_id = github_user.get("id")
+
+    if not isinstance(user_id, int) or isinstance(user_id, bool):
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid user identity. Please sign in again.",
+        )
+
+    history = get_repository_history(user_id)
+
+    return {"repositories": history}
+
+
+@router.post("/history")
+async def record_repository_history(
+    payload: RepositoryHistoryRequest,
+    session: dict = Depends(get_current_session),
+):
+    github_user = session.get("github_user", {})
+    user_id = github_user.get("id")
+    token = session.get("access_token")
+
+    if not isinstance(user_id, int) or isinstance(user_id, bool):
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid user identity. Please sign in again.",
+        )
+
+    repository = await get_accessible_repository(
+        payload.owner.strip(),
+        payload.repo.strip(),
+        token,
+    )
+
+    owner = repository.get("owner", {}).get("login")
+    repo_name = repository.get("name")
+    full_name = repository.get("full_name", "")
+
+    if (
+        not isinstance(owner, str)
+        or not owner.strip()
+        or not isinstance(repo_name, str)
+        or not repo_name.strip()
+    ):
+        raise HTTPException(
+            status_code=502,
+            detail="GitHub returned invalid repository information.",
+        )
+
+    record_repository_open(
+        user_id=user_id,
+        owner=owner,
+        repo=repo_name,
+        name=full_name or f"{owner}/{repo_name}",
+        description=repository.get("description") or "",
+    )
+
+    return {
+        "message": "Repository history updated.",
+        "repository": {
+            "owner": owner,
+            "repo": repo_name,
+            "name": full_name or f"{owner}/{repo_name}",
+        },
+    }
 
 async def get_repository_tree_safely(
     owner: str,
