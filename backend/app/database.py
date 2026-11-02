@@ -5,7 +5,7 @@ from pathlib import Path
 import time
 
 DATABASE_PATH = Path(__file__).resolve().parent.parent / "devpilot.db"
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
 
 def migrate_to_v1(connection):
     connection.execute("""
@@ -131,12 +131,44 @@ def migrate_to_v5(connection):
         ON conversation_messages(conversation_id, created_at)
     """)
 
+def migrate_to_v6(connection):
+    connection.execute("""
+        CREATE TABLE IF NOT EXISTS activities (
+            id TEXT PRIMARY KEY,
+            user_id INTEGER NOT NULL,
+            owner TEXT NOT NULL COLLATE NOCASE,
+            repo TEXT NOT NULL COLLATE NOCASE,
+            action_type TEXT NOT NULL,
+            title TEXT NOT NULL,
+            status TEXT NOT NULL CHECK (
+                status IN ('running', 'success', 'failed')
+            ),
+            details TEXT NOT NULL DEFAULT '{}',
+            created_at REAL NOT NULL,
+            completed_at REAL,
+            FOREIGN KEY (user_id)
+                REFERENCES users(github_id)
+                ON DELETE CASCADE
+        )
+    """)
+
+    connection.execute("""
+        CREATE INDEX IF NOT EXISTS idx_activities_user_repo
+        ON activities(user_id, owner, repo, created_at DESC)
+    """)
+
+    connection.execute("""
+        CREATE INDEX IF NOT EXISTS idx_activities_user_created
+        ON activities(user_id, created_at DESC)
+    """)
+
 MIGRATIONS = {
     1: migrate_to_v1,
     2: migrate_to_v2,
     3: migrate_to_v3,
     4: migrate_to_v4,
     5: migrate_to_v5,
+    6: migrate_to_v6,
 }
 
 
@@ -857,3 +889,194 @@ def get_conversation(
         ).fetchone()
 
     return dict(row) if row else None
+
+def create_activity(
+    user_id: int,
+    owner: str,
+    repo: str,
+    action_type: str,
+    title: str,
+    details: dict | None = None,
+) -> dict:
+    """Create a running activity record."""
+
+    import uuid
+
+    if not isinstance(user_id, int) or isinstance(user_id, bool):
+        raise ValueError("Invalid user ID.")
+
+    if not owner.strip() or not repo.strip():
+        raise ValueError("Repository owner and name are required.")
+
+    if not action_type.strip() or not title.strip():
+        raise ValueError("Activity type and title are required.")
+
+    if details is None:
+        details = {}
+
+    if not isinstance(details, dict):
+        raise ValueError("Activity details must be a dictionary.")
+
+    activity_id = str(uuid.uuid4())
+    now = time.time()
+
+    with get_connection() as connection:
+        connection.execute(
+            """
+            INSERT INTO activities (
+                id, user_id, owner, repo, action_type, title,
+                status, details, created_at, completed_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, 'running', ?, ?, NULL)
+            """,
+            (
+                activity_id,
+                user_id,
+                owner.strip(),
+                repo.strip(),
+                action_type.strip(),
+                title.strip(),
+                json.dumps(details),
+                now,
+            ),
+        )
+
+        row = connection.execute(
+            "SELECT * FROM activities WHERE id = ?",
+            (activity_id,),
+        ).fetchone()
+
+    activity = dict(row)
+    activity["details"] = json.loads(activity["details"])
+
+    return activity
+
+
+def complete_activity(
+    activity_id: str,
+    user_id: int,
+    status: str,
+    details: dict | None = None,
+) -> dict | None:
+    """Finish an activity owned by the specified user."""
+
+    if status not in ("success", "failed"):
+        raise ValueError("Invalid activity completion status.")
+
+    if details is not None and not isinstance(details, dict):
+        raise ValueError("Activity details must be a dictionary.")
+
+    now = time.time()
+
+    with get_connection() as connection:
+        existing = connection.execute(
+            """
+            SELECT details
+            FROM activities
+            WHERE id = ? AND user_id = ? AND status = 'running'
+            """,
+            (activity_id, user_id),
+        ).fetchone()
+
+        if existing is None:
+            return None
+
+        activity_details = json.loads(existing["details"])
+
+        if details:
+            activity_details.update(details)
+
+        connection.execute(
+            """
+            UPDATE activities
+            SET status = ?, details = ?, completed_at = ?
+            WHERE id = ? AND user_id = ? AND status = 'running'
+            """,
+            (
+                status,
+                json.dumps(activity_details),
+                now,
+                activity_id,
+                user_id,
+            ),
+        )
+
+        row = connection.execute(
+            "SELECT * FROM activities WHERE id = ?",
+            (activity_id,),
+        ).fetchone()
+
+    activity = dict(row)
+    activity["details"] = json.loads(activity["details"])
+
+    return activity
+
+
+def list_activities(
+    user_id: int,
+    owner: str | None = None,
+    repo: str | None = None,
+    limit: int = 50,
+) -> list[dict]:
+    """List activities belonging to one user."""
+
+    if not isinstance(limit, int) or isinstance(limit, bool):
+        raise ValueError("Invalid activity limit.")
+
+    if limit < 1 or limit > 100:
+        raise ValueError("Activity limit must be between 1 and 100.")
+
+    query = """
+        SELECT *
+        FROM activities
+        WHERE user_id = ?
+    """
+    params = [user_id]
+
+    if owner is not None:
+        query += " AND owner = ?"
+        params.append(owner)
+
+    if repo is not None:
+        query += " AND repo = ?"
+        params.append(repo)
+
+    query += " ORDER BY created_at DESC LIMIT ?"
+    params.append(limit)
+
+    with get_connection() as connection:
+        rows = connection.execute(query, params).fetchall()
+
+    activities = []
+
+    for row in rows:
+        activity = dict(row)
+        activity["details"] = json.loads(activity["details"])
+        activities.append(activity)
+
+    return activities
+
+
+def get_activity(
+    activity_id: str,
+    user_id: int,
+) -> dict | None:
+    """Retrieve one activity belonging to its owner."""
+
+    with get_connection() as connection:
+        row = connection.execute(
+            """
+            SELECT *
+            FROM activities
+            WHERE id = ? AND user_id = ?
+            """,
+            (activity_id, user_id),
+        ).fetchone()
+
+    if row is None:
+        return None
+
+    activity = dict(row)
+    activity["details"] = json.loads(activity["details"])
+
+    return activity

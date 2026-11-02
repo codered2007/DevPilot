@@ -1,9 +1,11 @@
+
 import re
 import uuid
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException
 
+from app import database
 from app.api.dependencies import get_current_session
 from app.api.repositories import (
     get_accessible_repository,
@@ -62,12 +64,29 @@ async def apply_code(
             ),
         )
 
-    # Verify the authenticated user's repository access before writing.
     await get_accessible_repository(
         request.owner,
         request.repo,
         token,
     )
+
+    github_user = session.get("github_user")
+    user_id = github_user.get("id") if isinstance(github_user, dict) else None
+
+    activity = None
+
+    if isinstance(user_id, int) and not isinstance(user_id, bool):
+        activity = database.create_activity(
+            user_id=user_id,
+            owner=request.owner,
+            repo=request.repo,
+            action_type="apply_code",
+            title=f"Apply {request.action} to {request.file_path}",
+            details={
+                "file_path": request.file_path,
+                "action": request.action,
+            },
+        )
 
     try:
         default_branch = await get_default_branch(
@@ -136,6 +155,21 @@ async def apply_code(
                 detail="Unable to update file on GitHub.",
             )
 
+        if activity:
+            database.complete_activity(
+                activity_id=activity["id"],
+                user_id=user_id,
+                status="success",
+                details={
+                    "file_path": request.file_path,
+                    "action": request.action,
+                    "branch": result["branch"],
+                    "base_branch": default_branch,
+                    "commit_sha": result["commit_sha"],
+                    "commit_url": result["commit_url"],
+                },
+            )
+
         return {
             "message": "Code applied successfully.",
             "owner": request.owner,
@@ -149,16 +183,49 @@ async def apply_code(
         }
 
     except HTTPException:
+        if activity:
+            database.complete_activity(
+                activity_id=activity["id"],
+                user_id=user_id,
+                status="failed",
+                details={"error_type": "HTTPException"},
+            )
         raise
 
     except httpx.HTTPStatusError as error:
+        if activity:
+            database.complete_activity(
+                activity_id=activity["id"],
+                user_id=user_id,
+                status="failed",
+                details={"error_type": type(error).__name__},
+            )
+
         _raise_github_http_error(
             error,
             operation="code application",
         )
 
     except httpx.RequestError as error:
+        if activity:
+            database.complete_activity(
+                activity_id=activity["id"],
+                user_id=user_id,
+                status="failed",
+                details={"error_type": type(error).__name__},
+            )
+
         _raise_github_network_error(
             error,
             operation="code application",
         )
+
+    except Exception as exc:
+        if activity:
+            database.complete_activity(
+                activity_id=activity["id"],
+                user_id=user_id,
+                status="failed",
+                details={"error_type": type(exc).__name__},
+            )
+        raise

@@ -70,7 +70,7 @@ def test_initialize_database_is_repeatable(tmp_path, monkeypatch):
 
     assert version is not None
     assert version["version"] == database.SCHEMA_VERSION
-    assert database.SCHEMA_VERSION == 5
+    assert database.SCHEMA_VERSION == 6
 
 def test_initialize_database_rejects_future_schema_version(
     tmp_path, monkeypatch
@@ -291,10 +291,10 @@ def test_initialize_database_rolls_back_failed_schema_creation(
     assert "sessions" not in tables
 
 def test_migration_registry_has_one_step_per_supported_version():
-    assert database.SCHEMA_VERSION == 5
+    assert database.SCHEMA_VERSION == 6
     assert hasattr(database, "MIGRATIONS")
 
-    assert set(database.MIGRATIONS) == {1, 2, 3, 4, 5}
+    assert set(database.MIGRATIONS) == {1, 2, 3, 4, 5, 6}
 
     assert all(
         callable(migration)
@@ -360,3 +360,32 @@ def test_registered_migration_failure_rolls_back_version(
     assert version == 1
     assert "migration_should_rollback" not in tables
     assert "workspaces" not in tables
+def test_migration_v6_creates_activities_table_and_indexes(tmp_path, monkeypatch):
+    db_path = tmp_path / "migration_v6.db"
+    monkeypatch.setattr(database, "DATABASE_PATH", db_path)
+
+    database.initialize_database()
+
+    with sqlite3.connect(db_path) as connection:
+        tables = {
+            row[0]
+            for row in connection.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'table'"
+            )
+        }
+
+        indexes = {
+            row[0]
+            for row in connection.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'index'"
+            )
+        }
+
+        version = connection.execute(
+            "SELECT version FROM schema_version"
+        ).fetchone()[0]
+
+    assert "activities" in tables
+    assert "idx_activities_user_repo" in indexes
+    assert "idx_activities_user_created" in indexes
+    assert version == 6

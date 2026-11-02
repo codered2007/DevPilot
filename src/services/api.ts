@@ -666,3 +666,83 @@ export async function analyzeRepositoryDependencies(
 
   return response.json();
 }
+
+export interface Activity {
+  id: string;
+  user_id: number;
+  owner: string;
+  repo: string;
+  action_type: string;
+  title: string;
+  status: "running" | "success" | "failed";
+  details: Record<string, unknown>;
+  created_at: number;
+  completed_at: number | null;
+}
+
+export async function getRecentActivities(
+  limit = 20
+): Promise<Activity[]> {
+  const response = await fetch(
+    `${API_URL}/activities/?limit=${limit}`,
+    {
+      credentials: "include",
+    }
+  );
+
+  if (!response.ok) {
+    throw new Error("Failed to fetch recent activity");
+  }
+
+  const data: { activities: Activity[]; count: number } =
+    await response.json();
+
+  return data.activities;
+}
+
+export async function getRepositoryActivities(
+  owner: string,
+  repo: string,
+  limit = 50
+): Promise<Activity[]> {
+  const params = new URLSearchParams({
+    owner,
+    repo,
+    limit: String(limit),
+  });
+
+  const response = await fetch(
+    `${API_URL}/activities/?${params}`,
+    {
+      credentials: "include",
+    }
+  );
+
+  if (!response.ok) {
+    throw new Error("Failed to fetch repository activity");
+  }
+
+  const data: { activities: Activity[]; count: number } =
+    await response.json();
+
+  return data.activities;
+}
+
+export async function getActivity(
+  activityId: string
+): Promise<Activity> {
+  const response = await fetch(
+    `${API_URL}/activities/${encodeURIComponent(activityId)}`,
+    {
+      credentials: "include",
+    }
+  );
+
+  if (!response.ok) {
+    throw new Error("Failed to fetch activity details");
+  }
+
+  const data: { activity: Activity } = await response.json();
+
+  return data.activity;
+}

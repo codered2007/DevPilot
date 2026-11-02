@@ -1,6 +1,7 @@
 
 from fastapi import APIRouter, Depends, HTTPException
 
+from app import database
 from app.api.dependencies import get_current_session
 from app.api.repositories import get_accessible_repository
 from app.services.architecture_analysis import (
@@ -37,16 +38,47 @@ async def architecture_analysis(
         token,
     )
 
-    result = await analyze_repository_architecture(
-        owner,
-        repo,
-        token=token,
+    user_id = session["github_user"]["id"]
+
+    activity = database.create_activity(
+        user_id=user_id,
+        owner=owner,
+        repo=repo,
+        action_type="architecture_analysis",
+        title=f"Analyze architecture of {owner}/{repo}",
     )
 
-    if not result:
-        raise HTTPException(
-            status_code=400,
-            detail="Unable to analyze repository architecture.",
+    try:
+        result = await analyze_repository_architecture(
+            owner,
+            repo,
+            token=token,
         )
 
-    return result
+        if not result:
+            raise HTTPException(
+                status_code=400,
+                detail="Unable to analyze repository architecture.",
+            )
+
+        database.complete_activity(
+            activity_id=activity["id"],
+            user_id=user_id,
+            status="success",
+            details={
+                "architecture_analysis": result,
+            },
+        )
+
+        return result
+
+    except Exception as exc:
+        database.complete_activity(
+            activity_id=activity["id"],
+            user_id=user_id,
+            status="failed",
+            details={
+                "error_type": type(exc).__name__,
+            },
+        )
+        raise

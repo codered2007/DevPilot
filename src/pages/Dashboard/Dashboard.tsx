@@ -11,8 +11,10 @@ import {
 import { useNavigate } from "react-router-dom";
 
 import EmptyState from "../../components/dashboard/EmptyState";
+import RecentActivity from "../../components/dashboard/RecentActivity";
 import RepositoryCard from "../../components/repository/RepositoryCard";
 import RepositoryImport from "../../components/repository/RepositoryImport";
+
 import {
   getRepositoryTree,
   getRepositoryHistory,
@@ -20,6 +22,7 @@ import {
   recordRepositoryOpen,
   type RepositoryHistoryItem,
 } from "../../services/api";
+
 import { useRepository } from "../../context/useRepository";
 
 interface GithubUser {
@@ -32,13 +35,16 @@ interface GithubUser {
 
 function Dashboard() {
   const [user, setUser] = useState<GithubUser | null>(null);
+
   const [fileCount, setFileCount] = useState(0);
   const [loadingFiles, setLoadingFiles] = useState(false);
 
   const [history, setHistory] = useState<RepositoryHistoryItem[]>([]);
   const [loadingHistory, setLoadingHistory] = useState(true);
   const [historyError, setHistoryError] = useState("");
+
   const [openError, setOpenError] = useState("");
+
   const [openingRepository, setOpeningRepository] = useState<string | null>(
     null
   );
@@ -157,7 +163,6 @@ function Dashboard() {
       setOpeningRepository(repositoryKey);
       setOpenError("");
 
-      // Fetch complete repository details and verify access
       const reopenedRepository = await importRepository(
         `https://github.com/${item.owner}/${item.repo}`
       );
@@ -189,10 +194,56 @@ function Dashboard() {
     }
   };
 
+  // Reopen a repository from an activity
+  const handleOpenActivityRepository = async (
+    owner: string,
+    repo: string
+  ) => {
+    const repositoryKey = `${owner}/${repo}`;
+
+    try {
+      setOpeningRepository(repositoryKey);
+      setOpenError("");
+
+      const reopenedRepository = await importRepository(
+        `https://github.com/${owner}/${repo}`
+      );
+
+      setRepository(reopenedRepository);
+
+      // Update repository history without blocking navigation
+      try {
+        await recordRepositoryOpen(owner, repo);
+
+        const updatedHistory = await getRepositoryHistory();
+        setHistory(updatedHistory);
+      } catch (historyUpdateError) {
+        console.error(
+          "Failed to update repository history:",
+          historyUpdateError
+        );
+      }
+
+      navigate("/dashboard/repository");
+    } catch (error) {
+      console.error(
+        "Failed to reopen activity repository:",
+        error
+      );
+
+      setOpenError(
+        `Could not open ${repositoryKey}. Check repository access and try again.`
+      );
+    } finally {
+      setOpeningRepository(null);
+    }
+  };
+
   const displayName = user?.name || user?.login || "Developer";
 
   return (
     <div className="mx-auto w-full max-w-[1440px] space-y-6 sm:space-y-8">
+
       {/* Welcome */}
       <section className="relative overflow-hidden rounded-2xl border border-zinc-800 bg-[#111418]">
         <div className="pointer-events-none absolute inset-0">
@@ -358,6 +409,11 @@ function Dashboard() {
           </div>
         )}
       </section>
+
+      {/* Recent Activity */}
+      <RecentActivity
+        onOpenRepository={handleOpenActivityRepository}
+      />
 
       {/* Workspace */}
       <section className="min-w-0">

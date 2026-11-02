@@ -9,6 +9,7 @@ from app.api.index import router as index_router
 from app.api.code_actions import router as code_actions_router
 from app.api.apply_code import router as apply_code_router
 from app.api.pull_request import router as pull_request_router
+from app.api.activities import router as activities_router
 from app.api.repository_review import (
     router as repository_review_router,
 )
@@ -57,6 +58,7 @@ app.include_router(dependency_analysis_router)
 app.include_router(security_analysis_router)
 app.include_router(auth_router)
 app.include_router(workspaces_router)
+app.include_router(activities_router)
 
 @app.get("/")
 def root():
