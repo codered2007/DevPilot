@@ -1,4 +1,5 @@
-from pydantic import BaseModel
+
+from pydantic import BaseModel, Field
 
 
 class ChatMessage(BaseModel):
@@ -10,4 +11,5 @@ class ChatRequest(BaseModel):
     owner: str
     repo: str
     message: str
-    history: list[ChatMessage] = []
+    conversation_id: str | None = None
+    history: list[ChatMessage] = Field(default_factory=list)

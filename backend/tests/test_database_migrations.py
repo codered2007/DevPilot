@@ -70,7 +70,7 @@ def test_initialize_database_is_repeatable(tmp_path, monkeypatch):
 
     assert version is not None
     assert version["version"] == database.SCHEMA_VERSION
-    assert database.SCHEMA_VERSION == 4
+    assert database.SCHEMA_VERSION == 5
 
 def test_initialize_database_rejects_future_schema_version(
     tmp_path, monkeypatch
@@ -291,10 +291,10 @@ def test_initialize_database_rolls_back_failed_schema_creation(
     assert "sessions" not in tables
 
 def test_migration_registry_has_one_step_per_supported_version():
-    assert database.SCHEMA_VERSION == 4
+    assert database.SCHEMA_VERSION == 5
     assert hasattr(database, "MIGRATIONS")
 
-    assert set(database.MIGRATIONS) == {1, 2, 3, 4}
+    assert set(database.MIGRATIONS) == {1, 2, 3, 4, 5}
 
     assert all(
         callable(migration)

@@ -10,7 +10,24 @@ export interface ChatResponse {
   response: string;
   sources: string[];
 }
+export interface Conversation {
+  id: string;
+  user_id: number;
+  owner: string;
+  repo: string;
+  title: string;
+  created_at: number;
+  updated_at: number;
+}
 
+export interface ConversationHistoryMessage {
+  id: string;
+  conversation_id: string;
+  role: "user" | "assistant";
+  content: string;
+  sources: string[];
+  created_at: number;
+}
 export interface RepositoryImportResponse {
   owner: string;
   repo: string;
@@ -149,7 +166,8 @@ export async function chatWithAI(
   owner: string,
   repo: string,
   message: string,
-  history: ChatMessage[]
+  history: ChatMessage[],
+  conversationId: string
 ): Promise<ChatResponse> {
   const response = await fetch(
     `${API_URL}/chat/`,
@@ -164,17 +182,117 @@ export async function chatWithAI(
         repo,
         message,
         history,
+        conversation_id: conversationId,
       }),
     }
   );
 
   if (!response.ok) {
-    throw new Error("AI request failed");
+    let errorMessage = "AI request failed";
+
+    try {
+      const error = await response.json();
+      if (error.detail) errorMessage = error.detail;
+    } catch {
+      // Keep default error message.
+    }
+
+    throw new Error(errorMessage);
   }
 
   return response.json();
 }
+export async function createConversation(
+  owner: string,
+  repo: string
+): Promise<Conversation> {
+  const params = new URLSearchParams({ owner, repo });
 
+  const response = await fetch(
+    `${API_URL}/chat/conversations?${params}`,
+    {
+      method: "POST",
+      credentials: "include",
+    }
+  );
+
+  if (!response.ok) {
+    throw new Error("Failed to create conversation");
+  }
+
+  const data = await response.json();
+  return data.conversation;
+}
+
+
+export async function getConversations(
+  owner: string,
+  repo: string
+): Promise<Conversation[]> {
+  const params = new URLSearchParams({ owner, repo });
+
+  const response = await fetch(
+    `${API_URL}/chat/conversations?${params}`,
+    {
+      credentials: "include",
+    }
+  );
+
+  if (!response.ok) {
+    throw new Error("Failed to fetch conversations");
+  }
+
+  const data = await response.json();
+  return data.conversations;
+}
+
+
+export async function getConversationMessages(
+  conversationId: string,
+  owner: string,
+  repo: string
+): Promise<ConversationHistoryMessage[]> {
+  const params = new URLSearchParams({ owner, repo });
+
+  const response = await fetch(
+    `${API_URL}/chat/conversations/${encodeURIComponent(
+      conversationId
+    )}?${params}`,
+    {
+      credentials: "include",
+    }
+  );
+
+  if (!response.ok) {
+    throw new Error("Failed to fetch conversation messages");
+  }
+
+  const data = await response.json();
+  return data.messages;
+}
+
+
+export async function deleteConversation(
+  conversationId: string,
+  owner: string,
+  repo: string
+): Promise<void> {
+  const params = new URLSearchParams({ owner, repo });
+
+  const response = await fetch(
+    `${API_URL}/chat/conversations/${encodeURIComponent(
+      conversationId
+    )}?${params}`,
+    {
+      method: "DELETE",
+      credentials: "include",
+    }
+  );
+
+  if (!response.ok) {
+    throw new Error("Failed to delete conversation");
+  }
+}
 export async function getRepositorySummary(
   owner: string,
   repo: string

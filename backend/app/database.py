@@ -5,7 +5,7 @@ from pathlib import Path
 import time
 
 DATABASE_PATH = Path(__file__).resolve().parent.parent / "devpilot.db"
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 
 def migrate_to_v1(connection):
     connection.execute("""
@@ -91,11 +91,52 @@ def migrate_to_v4(connection):
         ON repository_history(user_id, last_opened_at DESC)
     """)
 
+def migrate_to_v5(connection):
+    connection.execute("""
+        CREATE TABLE IF NOT EXISTS conversations (
+            id TEXT PRIMARY KEY,
+            user_id INTEGER NOT NULL,
+            owner TEXT NOT NULL COLLATE NOCASE,
+            repo TEXT NOT NULL COLLATE NOCASE,
+            title TEXT NOT NULL DEFAULT 'New conversation',
+            created_at REAL NOT NULL,
+            updated_at REAL NOT NULL,
+            FOREIGN KEY (user_id)
+                REFERENCES users(github_id)
+                ON DELETE CASCADE
+        )
+    """)
+
+    connection.execute("""
+        CREATE TABLE IF NOT EXISTS conversation_messages (
+            id TEXT PRIMARY KEY,
+            conversation_id TEXT NOT NULL,
+            role TEXT NOT NULL CHECK (role IN ('user', 'assistant')),
+            content TEXT NOT NULL,
+            sources TEXT NOT NULL DEFAULT '[]',
+            created_at REAL NOT NULL,
+            FOREIGN KEY (conversation_id)
+                REFERENCES conversations(id)
+                ON DELETE CASCADE
+        )
+    """)
+
+    connection.execute("""
+        CREATE INDEX IF NOT EXISTS idx_conversations_user_repo
+        ON conversations(user_id, owner, repo, updated_at DESC)
+    """)
+
+    connection.execute("""
+        CREATE INDEX IF NOT EXISTS idx_conversation_messages_conversation
+        ON conversation_messages(conversation_id, created_at)
+    """)
+
 MIGRATIONS = {
     1: migrate_to_v1,
     2: migrate_to_v2,
     3: migrate_to_v3,
-     4: migrate_to_v4,
+    4: migrate_to_v4,
+    5: migrate_to_v5,
 }
 
 
@@ -569,3 +610,250 @@ def get_repository_history(
         ).fetchall()
 
     return [dict(row) for row in rows]
+
+
+import uuid
+
+
+def create_conversation(
+    user_id: int,
+    owner: str,
+    repo: str,
+    title: str = "New conversation",
+) -> dict:
+    """Create a conversation belonging to a user and repository."""
+
+    if not isinstance(user_id, int) or isinstance(user_id, bool):
+        raise ValueError("Invalid user ID.")
+
+    if not all(
+        isinstance(value, str) and value.strip()
+        for value in (owner, repo, title)
+    ):
+        raise ValueError("Owner, repository, and title are required.")
+
+    conversation_id = str(uuid.uuid4())
+    now = time.time()
+
+    with get_connection() as connection:
+        connection.execute(
+            """
+            INSERT INTO conversations (
+                id, user_id, owner, repo, title, created_at, updated_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                conversation_id,
+                user_id,
+                owner.strip(),
+                repo.strip(),
+                title.strip(),
+                now,
+                now,
+            ),
+        )
+
+        row = connection.execute(
+            """
+            SELECT *
+            FROM conversations
+            WHERE id = ? AND user_id = ?
+            """,
+            (conversation_id, user_id),
+        ).fetchone()
+
+    return dict(row)
+
+
+def list_conversations(
+    user_id: int,
+    owner: str,
+    repo: str,
+) -> list[dict]:
+    """List conversations for one user and repository."""
+
+    with get_connection() as connection:
+        rows = connection.execute(
+            """
+            SELECT id, user_id, owner, repo, title, created_at, updated_at
+            FROM conversations
+            WHERE user_id = ? AND owner = ? AND repo = ?
+            ORDER BY updated_at DESC
+            """,
+            (user_id, owner, repo),
+        ).fetchall()
+
+    return [dict(row) for row in rows]
+
+
+
+def add_conversation_message(
+    conversation_id: str,
+    role: str,
+    content: str,
+    sources: list[str] | None = None,
+) -> dict:
+    """Store a message and update conversation metadata."""
+
+    if role not in ("user", "assistant"):
+        raise ValueError("Invalid message role.")
+
+    if not isinstance(content, str) or not content.strip():
+        raise ValueError("Message content is required.")
+
+    if sources is None:
+        sources = []
+
+    if not isinstance(sources, list) or not all(
+        isinstance(source, str) for source in sources
+    ):
+        raise ValueError("Invalid message sources.")
+
+    message_id = str(uuid.uuid4())
+    now = time.time()
+
+    with get_connection() as connection:
+        conversation = connection.execute(
+            """
+            SELECT id, title
+            FROM conversations
+            WHERE id = ?
+            """,
+            (conversation_id,),
+        ).fetchone()
+
+        if conversation is None:
+            raise ValueError("Conversation not found.")
+
+        connection.execute(
+            """
+            INSERT INTO conversation_messages (
+                id, conversation_id, role, content, sources, created_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (
+                message_id,
+                conversation_id,
+                role,
+                content,
+                json.dumps(sources),
+                now,
+            ),
+        )
+
+        if (
+            role == "user"
+            and conversation["title"] == "New conversation"
+        ):
+            title = " ".join(content.split())
+
+            if len(title) > 60:
+                title = title[:57] + "..."
+
+            connection.execute(
+                """
+                UPDATE conversations
+                SET title = ?, updated_at = ?
+                WHERE id = ?
+                """,
+                (title, now, conversation_id),
+            )
+        else:
+            connection.execute(
+                """
+                UPDATE conversations
+                SET updated_at = ?
+                WHERE id = ?
+                """,
+                (now, conversation_id),
+            )
+
+        row = connection.execute(
+            """
+            SELECT *
+            FROM conversation_messages
+            WHERE id = ?
+            """,
+            (message_id,),
+        ).fetchone()
+
+    result = dict(row)
+    result["sources"] = json.loads(result["sources"])
+
+    return result
+
+def get_conversation_messages(
+    conversation_id: str,
+    user_id: int,
+) -> list[dict] | None:
+    """Retrieve messages only if the conversation belongs to the user."""
+
+    with get_connection() as connection:
+        conversation = connection.execute(
+            """
+            SELECT id
+            FROM conversations
+            WHERE id = ? AND user_id = ?
+            """,
+            (conversation_id, user_id),
+        ).fetchone()
+
+        if conversation is None:
+            return None
+
+        rows = connection.execute(
+            """
+            SELECT id, conversation_id, role, content, sources, created_at
+            FROM conversation_messages
+            WHERE conversation_id = ?
+            ORDER BY created_at, id
+            """,
+            (conversation_id,),
+        ).fetchall()
+
+    messages = []
+
+    for row in rows:
+        message = dict(row)
+        message["sources"] = json.loads(message["sources"])
+        messages.append(message)
+
+    return messages
+
+
+def delete_conversation(
+    conversation_id: str,
+    user_id: int,
+) -> bool:
+    """Delete a user's conversation and cascade-delete its messages."""
+
+    with get_connection() as connection:
+        cursor = connection.execute(
+            """
+            DELETE FROM conversations
+            WHERE id = ? AND user_id = ?
+            """,
+            (conversation_id, user_id),
+        )
+
+    return cursor.rowcount > 0
+
+def get_conversation(
+    conversation_id: str,
+    user_id: int,
+) -> dict | None:
+    """Retrieve conversation metadata for its owner only."""
+
+    with get_connection() as connection:
+        row = connection.execute(
+            """
+            SELECT *
+            FROM conversations
+            WHERE id = ? AND user_id = ?
+            """,
+            (conversation_id, user_id),
+        ).fetchone()
+
+    return dict(row) if row else None
