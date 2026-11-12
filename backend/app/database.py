@@ -3,9 +3,9 @@ import json
 import sqlite3
 from pathlib import Path
 import time
-
+from uuid import uuid4
 DATABASE_PATH = Path(__file__).resolve().parent.parent / "devpilot.db"
-SCHEMA_VERSION = 6
+SCHEMA_VERSION = 8
 
 def migrate_to_v1(connection):
     connection.execute("""
@@ -161,6 +161,408 @@ def migrate_to_v6(connection):
         CREATE INDEX IF NOT EXISTS idx_activities_user_created
         ON activities(user_id, created_at DESC)
     """)
+def migrate_to_v7(connection):
+    # User-saved repository summaries and analysis results.
+    connection.execute("""
+        CREATE TABLE IF NOT EXISTS saved_results (
+            id TEXT PRIMARY KEY,
+            user_id INTEGER NOT NULL,
+            owner TEXT NOT NULL COLLATE NOCASE,
+            repo TEXT NOT NULL COLLATE NOCASE,
+            result_type TEXT NOT NULL CHECK (
+                result_type IN (
+                    'summary',
+                    'review',
+                    'architecture',
+                    'dependency',
+                    'security'
+                )
+            ),
+            title TEXT NOT NULL,
+            content TEXT NOT NULL DEFAULT '{}',
+            created_at REAL NOT NULL,
+            updated_at REAL NOT NULL,
+            FOREIGN KEY (user_id)
+                REFERENCES users(github_id)
+                ON DELETE CASCADE
+        )
+    """)
+
+    connection.execute("""
+        CREATE INDEX IF NOT EXISTS idx_saved_results_user_repo
+        ON saved_results(user_id, owner, repo, updated_at DESC)
+    """)
+
+    connection.execute("""
+        CREATE INDEX IF NOT EXISTS idx_saved_results_user_created
+        ON saved_results(user_id, created_at DESC)
+    """)
+
+    # Persistent user preferences.
+    connection.execute("""
+        CREATE TABLE IF NOT EXISTS user_preferences (
+            user_id INTEGER PRIMARY KEY,
+            preferences TEXT NOT NULL DEFAULT '{}',
+            updated_at REAL NOT NULL,
+            FOREIGN KEY (user_id)
+                REFERENCES users(github_id)
+                ON DELETE CASCADE
+        )
+    """)
+
+    # Persistent state belonging to a workspace.
+    connection.execute("""
+        CREATE TABLE IF NOT EXISTS workspace_state (
+            id TEXT PRIMARY KEY,
+            workspace_id TEXT NOT NULL,
+            user_id INTEGER NOT NULL,
+            state_key TEXT NOT NULL,
+            state_value TEXT NOT NULL DEFAULT '{}',
+            updated_at REAL NOT NULL,
+            UNIQUE (workspace_id, state_key),
+            FOREIGN KEY (workspace_id)
+                REFERENCES workspaces(id)
+                ON DELETE CASCADE,
+            FOREIGN KEY (user_id)
+                REFERENCES users(github_id)
+                ON DELETE CASCADE
+        )
+    """)
+
+    connection.execute("""
+        CREATE INDEX IF NOT EXISTS idx_workspace_state_user
+        ON workspace_state(user_id, workspace_id)
+    """)
+
+def migrate_to_v8(connection):
+    """
+    Scope repository history, conversations, activities, and saved
+    results to workspaces while preserving all existing records.
+    """
+
+    # Ensure every existing user has at least one workspace.
+    users = connection.execute(
+        "SELECT github_id FROM users"
+    ).fetchall()
+
+    workspace_by_user = {}
+
+    for user in users:
+        user_id = user["github_id"]
+
+        workspace = connection.execute(
+            """
+            SELECT id
+            FROM workspaces
+            WHERE user_id = ?
+            ORDER BY created_at ASC, id ASC
+            LIMIT 1
+            """,
+            (user_id,),
+        ).fetchone()
+
+        if workspace is None:
+            workspace_id = str(uuid4())
+            now = time.time()
+
+            connection.execute(
+                """
+                INSERT INTO workspaces (
+                    id, user_id, name, created_at, updated_at
+                )
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                (
+                    workspace_id,
+                    user_id,
+                    "Personal Workspace",
+                    now,
+                    now,
+                ),
+            )
+        else:
+            workspace_id = workspace["id"]
+
+        workspace_by_user[user_id] = workspace_id
+
+    # Rebuild repository history with workspace ownership.
+    connection.execute("""
+        CREATE TABLE repository_history_v8 (
+            user_id INTEGER NOT NULL,
+            workspace_id TEXT NOT NULL,
+            owner TEXT NOT NULL COLLATE NOCASE,
+            repo TEXT NOT NULL COLLATE NOCASE,
+            name TEXT NOT NULL,
+            description TEXT NOT NULL DEFAULT '',
+            last_opened_at REAL NOT NULL,
+            PRIMARY KEY (workspace_id, owner, repo),
+            FOREIGN KEY (user_id)
+                REFERENCES users(github_id) ON DELETE CASCADE,
+            FOREIGN KEY (workspace_id)
+                REFERENCES workspaces(id) ON DELETE CASCADE
+        )
+    """)
+
+    history = connection.execute(
+        "SELECT * FROM repository_history"
+    ).fetchall()
+
+    for row in history:
+        connection.execute(
+            """
+            INSERT INTO repository_history_v8 (
+                user_id, workspace_id, owner, repo,
+                name, description, last_opened_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                row["user_id"],
+                workspace_by_user[row["user_id"]],
+                row["owner"],
+                row["repo"],
+                row["name"],
+                row["description"],
+                row["last_opened_at"],
+            ),
+        )
+
+    connection.execute("DROP TABLE repository_history")
+    connection.execute(
+        "ALTER TABLE repository_history_v8 RENAME TO repository_history"
+    )
+
+    connection.execute("""
+        CREATE INDEX idx_repository_history_workspace
+        ON repository_history(user_id, workspace_id, last_opened_at DESC)
+    """)
+
+    # Rebuild conversations and their dependent messages.
+    connection.execute("""
+        CREATE TABLE conversations_v8 (
+            id TEXT PRIMARY KEY,
+            user_id INTEGER NOT NULL,
+            workspace_id TEXT NOT NULL,
+            owner TEXT NOT NULL COLLATE NOCASE,
+            repo TEXT NOT NULL COLLATE NOCASE,
+            title TEXT NOT NULL DEFAULT 'New conversation',
+            created_at REAL NOT NULL,
+            updated_at REAL NOT NULL,
+            FOREIGN KEY (user_id)
+                REFERENCES users(github_id) ON DELETE CASCADE,
+            FOREIGN KEY (workspace_id)
+                REFERENCES workspaces(id) ON DELETE CASCADE
+        )
+    """)
+
+    conversations = connection.execute(
+        "SELECT * FROM conversations"
+    ).fetchall()
+
+    for row in conversations:
+        connection.execute(
+            """
+            INSERT INTO conversations_v8 (
+                id, user_id, workspace_id, owner, repo,
+                title, created_at, updated_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                row["id"],
+                row["user_id"],
+                workspace_by_user[row["user_id"]],
+                row["owner"],
+                row["repo"],
+                row["title"],
+                row["created_at"],
+                row["updated_at"],
+            ),
+        )
+
+    connection.execute("""
+        CREATE TABLE conversation_messages_v8 (
+            id TEXT PRIMARY KEY,
+            conversation_id TEXT NOT NULL,
+            role TEXT NOT NULL CHECK (role IN ('user', 'assistant')),
+            content TEXT NOT NULL,
+            sources TEXT NOT NULL DEFAULT '[]',
+            created_at REAL NOT NULL,
+            FOREIGN KEY (conversation_id)
+                REFERENCES conversations_v8(id) ON DELETE CASCADE
+        )
+    """)
+
+    messages = connection.execute(
+        "SELECT * FROM conversation_messages"
+    ).fetchall()
+
+    for row in messages:
+        connection.execute(
+            """
+            INSERT INTO conversation_messages_v8 (
+                id, conversation_id, role, content, sources, created_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (
+                row["id"],
+                row["conversation_id"],
+                row["role"],
+                row["content"],
+                row["sources"],
+                row["created_at"],
+            ),
+        )
+
+    connection.execute("DROP TABLE conversation_messages")
+    connection.execute("DROP TABLE conversations")
+
+    connection.execute(
+        "ALTER TABLE conversations_v8 RENAME TO conversations"
+    )
+    connection.execute(
+        "ALTER TABLE conversation_messages_v8 "
+        "RENAME TO conversation_messages"
+    )
+
+    connection.execute("""
+        CREATE INDEX idx_conversations_workspace_repo
+        ON conversations(user_id, workspace_id, owner, repo, updated_at DESC)
+    """)
+
+    connection.execute("""
+        CREATE INDEX idx_conversation_messages_conversation
+        ON conversation_messages(conversation_id, created_at)
+    """)
+
+    # Rebuild activities.
+    connection.execute("""
+        CREATE TABLE activities_v8 (
+            id TEXT PRIMARY KEY,
+            user_id INTEGER NOT NULL,
+            workspace_id TEXT NOT NULL,
+            owner TEXT NOT NULL COLLATE NOCASE,
+            repo TEXT NOT NULL COLLATE NOCASE,
+            action_type TEXT NOT NULL,
+            title TEXT NOT NULL,
+            status TEXT NOT NULL CHECK (
+                status IN ('running', 'success', 'failed')
+            ),
+            details TEXT NOT NULL DEFAULT '{}',
+            created_at REAL NOT NULL,
+            completed_at REAL,
+            FOREIGN KEY (user_id)
+                REFERENCES users(github_id) ON DELETE CASCADE,
+            FOREIGN KEY (workspace_id)
+                REFERENCES workspaces(id) ON DELETE CASCADE
+        )
+    """)
+
+    activities = connection.execute(
+        "SELECT * FROM activities"
+    ).fetchall()
+
+    for row in activities:
+        connection.execute(
+            """
+            INSERT INTO activities_v8 (
+                id, user_id, workspace_id, owner, repo,
+                action_type, title, status, details,
+                created_at, completed_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                row["id"],
+                row["user_id"],
+                workspace_by_user[row["user_id"]],
+                row["owner"],
+                row["repo"],
+                row["action_type"],
+                row["title"],
+                row["status"],
+                row["details"],
+                row["created_at"],
+                row["completed_at"],
+            ),
+        )
+
+    connection.execute("DROP TABLE activities")
+    connection.execute("ALTER TABLE activities_v8 RENAME TO activities")
+
+    connection.execute("""
+        CREATE INDEX idx_activities_workspace_repo
+        ON activities(user_id, workspace_id, owner, repo, created_at DESC)
+    """)
+
+    connection.execute("""
+        CREATE INDEX idx_activities_workspace_created
+        ON activities(user_id, workspace_id, created_at DESC)
+    """)
+
+    # Rebuild saved results.
+    connection.execute("""
+        CREATE TABLE saved_results_v8 (
+            id TEXT PRIMARY KEY,
+            user_id INTEGER NOT NULL,
+            workspace_id TEXT NOT NULL,
+            owner TEXT NOT NULL COLLATE NOCASE,
+            repo TEXT NOT NULL COLLATE NOCASE,
+            result_type TEXT NOT NULL CHECK (
+                result_type IN (
+                    'summary',
+                    'review',
+                    'architecture',
+                    'dependency',
+                    'security'
+                )
+            ),
+            title TEXT NOT NULL,
+            content TEXT NOT NULL DEFAULT '{}',
+            created_at REAL NOT NULL,
+            updated_at REAL NOT NULL,
+            FOREIGN KEY (user_id)
+                REFERENCES users(github_id) ON DELETE CASCADE,
+            FOREIGN KEY (workspace_id)
+                REFERENCES workspaces(id) ON DELETE CASCADE
+        )
+    """)
+
+    results = connection.execute(
+        "SELECT * FROM saved_results"
+    ).fetchall()
+
+    for row in results:
+        connection.execute(
+            """
+            INSERT INTO saved_results_v8 (
+                id, user_id, workspace_id, owner, repo,
+                result_type, title, content, created_at, updated_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                row["id"],
+                row["user_id"],
+                workspace_by_user[row["user_id"]],
+                row["owner"],
+                row["repo"],
+                row["result_type"],
+                row["title"],
+                row["content"],
+                row["created_at"],
+                row["updated_at"],
+            ),
+        )
+
+    connection.execute("DROP TABLE saved_results")
+    connection.execute("ALTER TABLE saved_results_v8 RENAME TO saved_results")
+
+    connection.execute("""
+        CREATE INDEX idx_saved_results_workspace
+        ON saved_results(user_id, workspace_id, updated_at DESC)
+    """)
 
 MIGRATIONS = {
     1: migrate_to_v1,
@@ -169,6 +571,8 @@ MIGRATIONS = {
     4: migrate_to_v4,
     5: migrate_to_v5,
     6: migrate_to_v6,
+    7: migrate_to_v7,
+    8: migrate_to_v8,
 }
 
 
@@ -571,43 +975,59 @@ def fail_chroma_cleanup(collection_name: str, error: str) -> bool:
 
 
 
+
 def record_repository_open(
     user_id: int,
+    workspace_id: str,
     owner: str,
     repo: str,
     name: str,
     description: str = "",
 ) -> None:
-    """Record a repository opening or update its last-opened timestamp."""
+    """Record a repository opening within an owned workspace."""
 
     if not isinstance(user_id, int) or isinstance(user_id, bool):
         raise ValueError("Invalid user ID.")
+
+    if not isinstance(workspace_id, str) or not workspace_id.strip():
+        raise ValueError("Workspace ID is required.")
 
     if not all(
         isinstance(value, str) and value.strip()
         for value in (owner, repo, name)
     ):
-        raise ValueError("Repository owner, name, and display name are required.")
-
-    if not isinstance(description, str):
-        raise ValueError("Invalid repository description.")
+        raise ValueError("Repository owner, name, and repository are required.")
 
     now = time.time()
 
     with get_connection() as connection:
+        workspace = connection.execute(
+            """
+            SELECT id
+            FROM workspaces
+            WHERE id = ? AND user_id = ?
+            """,
+            (workspace_id, user_id),
+        ).fetchone()
+
+        if workspace is None:
+            raise ValueError("Workspace not found.")
+
         connection.execute(
             """
             INSERT INTO repository_history (
-                user_id, owner, repo, name, description, last_opened_at
+                user_id, workspace_id, owner, repo,
+                name, description, last_opened_at
             )
-            VALUES (?, ?, ?, ?, ?, ?)
-            ON CONFLICT(user_id, owner, repo) DO UPDATE SET
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(workspace_id, owner, repo) DO UPDATE SET
                 name = excluded.name,
                 description = excluded.description,
                 last_opened_at = excluded.last_opened_at
             """,
             (
                 user_id,
+                workspace_id,
                 owner.strip(),
                 repo.strip(),
                 name.strip(),
@@ -619,26 +1039,42 @@ def record_repository_open(
 
 def get_repository_history(
     user_id: int,
+    workspace_id: str,
     limit: int = 10,
 ) -> list[dict]:
-    """Return a user's recently opened repositories."""
+    """Return recently opened repositories in an owned workspace."""
 
     if not isinstance(user_id, int) or isinstance(user_id, bool):
         raise ValueError("Invalid user ID.")
+
+    if not isinstance(workspace_id, str) or not workspace_id.strip():
+        raise ValueError("Workspace ID is required.")
 
     if not isinstance(limit, int) or isinstance(limit, bool) or limit < 1:
         raise ValueError("History limit must be a positive integer.")
 
     with get_connection() as connection:
+        workspace = connection.execute(
+            """
+            SELECT id
+            FROM workspaces
+            WHERE id = ? AND user_id = ?
+            """,
+            (workspace_id, user_id),
+        ).fetchone()
+
+        if workspace is None:
+            raise ValueError("Workspace not found.")
+
         rows = connection.execute(
             """
             SELECT owner, repo, name, description, last_opened_at
             FROM repository_history
-            WHERE user_id = ?
+            WHERE user_id = ? AND workspace_id = ?
             ORDER BY last_opened_at DESC
             LIMIT ?
             """,
-            (user_id, limit),
+            (user_id, workspace_id, limit),
         ).fetchall()
 
     return [dict(row) for row in rows]
@@ -647,16 +1083,21 @@ def get_repository_history(
 import uuid
 
 
+
 def create_conversation(
     user_id: int,
+    workspace_id: str,
     owner: str,
     repo: str,
     title: str = "New conversation",
 ) -> dict:
-    """Create a conversation belonging to a user and repository."""
+    """Create a conversation inside an owned workspace."""
 
     if not isinstance(user_id, int) or isinstance(user_id, bool):
         raise ValueError("Invalid user ID.")
+
+    if not isinstance(workspace_id, str) or not workspace_id.strip():
+        raise ValueError("Workspace ID is required.")
 
     if not all(
         isinstance(value, str) and value.strip()
@@ -668,16 +1109,30 @@ def create_conversation(
     now = time.time()
 
     with get_connection() as connection:
+        workspace = connection.execute(
+            """
+            SELECT id
+            FROM workspaces
+            WHERE id = ? AND user_id = ?
+            """,
+            (workspace_id, user_id),
+        ).fetchone()
+
+        if workspace is None:
+            raise ValueError("Workspace not found.")
+
         connection.execute(
             """
             INSERT INTO conversations (
-                id, user_id, owner, repo, title, created_at, updated_at
+                id, user_id, workspace_id, owner, repo,
+                title, created_at, updated_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 conversation_id,
                 user_id,
+                workspace_id,
                 owner.strip(),
                 repo.strip(),
                 title.strip(),
@@ -690,9 +1145,9 @@ def create_conversation(
             """
             SELECT *
             FROM conversations
-            WHERE id = ? AND user_id = ?
+            WHERE id = ? AND user_id = ? AND workspace_id = ?
             """,
-            (conversation_id, user_id),
+            (conversation_id, user_id, workspace_id),
         ).fetchone()
 
     return dict(row)
@@ -700,24 +1155,40 @@ def create_conversation(
 
 def list_conversations(
     user_id: int,
+    workspace_id: str,
     owner: str,
     repo: str,
 ) -> list[dict]:
-    """List conversations for one user and repository."""
+    """List conversations belonging to a workspace and repository."""
 
     with get_connection() as connection:
+        workspace = connection.execute(
+            """
+            SELECT id
+            FROM workspaces
+            WHERE id = ? AND user_id = ?
+            """,
+            (workspace_id, user_id),
+        ).fetchone()
+
+        if workspace is None:
+            raise ValueError("Workspace not found.")
+
         rows = connection.execute(
             """
-            SELECT id, user_id, owner, repo, title, created_at, updated_at
+            SELECT id, user_id, workspace_id, owner, repo,
+                   title, created_at, updated_at
             FROM conversations
-            WHERE user_id = ? AND owner = ? AND repo = ?
+            WHERE user_id = ?
+              AND workspace_id = ?
+              AND owner = ?
+              AND repo = ?
             ORDER BY updated_at DESC
             """,
-            (user_id, owner, repo),
+            (user_id, workspace_id, owner, repo),
         ).fetchall()
 
     return [dict(row) for row in rows]
-
 
 
 def add_conversation_message(
@@ -725,8 +1196,10 @@ def add_conversation_message(
     role: str,
     content: str,
     sources: list[str] | None = None,
+    user_id: int | None = None,
+    workspace_id: str | None = None,
 ) -> dict:
-    """Store a message and update conversation metadata."""
+    """Store a message only in a conversation owned by this workspace."""
 
     if role not in ("user", "assistant"):
         raise ValueError("Invalid message role.")
@@ -742,6 +1215,9 @@ def add_conversation_message(
     ):
         raise ValueError("Invalid message sources.")
 
+    if user_id is None or not isinstance(workspace_id, str) or not workspace_id.strip():
+        raise ValueError("User and workspace are required.")
+
     message_id = str(uuid.uuid4())
     now = time.time()
 
@@ -750,9 +1226,9 @@ def add_conversation_message(
             """
             SELECT id, title
             FROM conversations
-            WHERE id = ?
+            WHERE id = ? AND user_id = ? AND workspace_id = ?
             """,
-            (conversation_id,),
+            (conversation_id, user_id, workspace_id),
         ).fetchone()
 
         if conversation is None:
@@ -775,10 +1251,7 @@ def add_conversation_message(
             ),
         )
 
-        if (
-            role == "user"
-            and conversation["title"] == "New conversation"
-        ):
+        if role == "user" and conversation["title"] == "New conversation":
             title = " ".join(content.split())
 
             if len(title) > 60:
@@ -788,18 +1261,18 @@ def add_conversation_message(
                 """
                 UPDATE conversations
                 SET title = ?, updated_at = ?
-                WHERE id = ?
+                WHERE id = ? AND user_id = ? AND workspace_id = ?
                 """,
-                (title, now, conversation_id),
+                (title, now, conversation_id, user_id, workspace_id),
             )
         else:
             connection.execute(
                 """
                 UPDATE conversations
                 SET updated_at = ?
-                WHERE id = ?
+                WHERE id = ? AND user_id = ? AND workspace_id = ?
                 """,
-                (now, conversation_id),
+                (now, conversation_id, user_id, workspace_id),
             )
 
         row = connection.execute(
@@ -816,20 +1289,22 @@ def add_conversation_message(
 
     return result
 
+
 def get_conversation_messages(
     conversation_id: str,
     user_id: int,
+    workspace_id: str,
 ) -> list[dict] | None:
-    """Retrieve messages only if the conversation belongs to the user."""
+    """Retrieve messages only from the specified owned workspace."""
 
     with get_connection() as connection:
         conversation = connection.execute(
             """
             SELECT id
             FROM conversations
-            WHERE id = ? AND user_id = ?
+            WHERE id = ? AND user_id = ? AND workspace_id = ?
             """,
-            (conversation_id, user_id),
+            (conversation_id, user_id, workspace_id),
         ).fetchone()
 
         if conversation is None:
@@ -858,58 +1333,65 @@ def get_conversation_messages(
 def delete_conversation(
     conversation_id: str,
     user_id: int,
+    workspace_id: str,
 ) -> bool:
-    """Delete a user's conversation and cascade-delete its messages."""
+    """Delete a conversation only within its owning workspace."""
 
     with get_connection() as connection:
         cursor = connection.execute(
             """
             DELETE FROM conversations
-            WHERE id = ? AND user_id = ?
+            WHERE id = ? AND user_id = ? AND workspace_id = ?
             """,
-            (conversation_id, user_id),
+            (conversation_id, user_id, workspace_id),
         )
 
     return cursor.rowcount > 0
 
+
 def get_conversation(
     conversation_id: str,
     user_id: int,
+    workspace_id: str,
 ) -> dict | None:
-    """Retrieve conversation metadata for its owner only."""
+    """Retrieve conversation metadata for its owner and workspace."""
 
     with get_connection() as connection:
         row = connection.execute(
             """
             SELECT *
             FROM conversations
-            WHERE id = ? AND user_id = ?
+            WHERE id = ? AND user_id = ? AND workspace_id = ?
             """,
-            (conversation_id, user_id),
+            (conversation_id, user_id, workspace_id),
         ).fetchone()
 
     return dict(row) if row else None
 
+
+
 def create_activity(
     user_id: int,
+    workspace_id: str,
     owner: str,
     repo: str,
     action_type: str,
     title: str,
     details: dict | None = None,
 ) -> dict:
-    """Create a running activity record."""
-
-    import uuid
+    """Create a running activity inside an owned workspace."""
 
     if not isinstance(user_id, int) or isinstance(user_id, bool):
         raise ValueError("Invalid user ID.")
 
-    if not owner.strip() or not repo.strip():
-        raise ValueError("Repository owner and name are required.")
+    if not isinstance(workspace_id, str) or not workspace_id.strip():
+        raise ValueError("Workspace ID is required.")
 
-    if not action_type.strip() or not title.strip():
-        raise ValueError("Activity type and title are required.")
+    if not all(
+        isinstance(value, str) and value.strip()
+        for value in (owner, repo, action_type, title)
+    ):
+        raise ValueError("Activity information is required.")
 
     if details is None:
         details = {}
@@ -917,21 +1399,35 @@ def create_activity(
     if not isinstance(details, dict):
         raise ValueError("Activity details must be a dictionary.")
 
-    activity_id = str(uuid.uuid4())
+    activity_id = str(uuid4())
     now = time.time()
 
     with get_connection() as connection:
+        workspace = connection.execute(
+            """
+            SELECT id
+            FROM workspaces
+            WHERE id = ? AND user_id = ?
+            """,
+            (workspace_id, user_id),
+        ).fetchone()
+
+        if workspace is None:
+            raise ValueError("Workspace not found.")
+
         connection.execute(
             """
             INSERT INTO activities (
-                id, user_id, owner, repo, action_type, title,
-                status, details, created_at, completed_at
+                id, user_id, workspace_id, owner, repo,
+                action_type, title, status, details,
+                created_at, completed_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, 'running', ?, ?, NULL)
+            VALUES (?, ?, ?, ?, ?, ?, ?, 'running', ?, ?, NULL)
             """,
             (
                 activity_id,
                 user_id,
+                workspace_id,
                 owner.strip(),
                 repo.strip(),
                 action_type.strip(),
@@ -955,16 +1451,20 @@ def create_activity(
 def complete_activity(
     activity_id: str,
     user_id: int,
+    workspace_id: str,
     status: str,
     details: dict | None = None,
 ) -> dict | None:
-    """Finish an activity owned by the specified user."""
+    """Complete an activity only within its owning workspace."""
 
     if status not in ("success", "failed"):
         raise ValueError("Invalid activity completion status.")
 
     if details is not None and not isinstance(details, dict):
         raise ValueError("Activity details must be a dictionary.")
+
+    if not isinstance(workspace_id, str) or not workspace_id.strip():
+        raise ValueError("Workspace ID is required.")
 
     now = time.time()
 
@@ -973,9 +1473,12 @@ def complete_activity(
             """
             SELECT details
             FROM activities
-            WHERE id = ? AND user_id = ? AND status = 'running'
+            WHERE id = ?
+              AND user_id = ?
+              AND workspace_id = ?
+              AND status = 'running'
             """,
-            (activity_id, user_id),
+            (activity_id, user_id, workspace_id),
         ).fetchone()
 
         if existing is None:
@@ -990,7 +1493,10 @@ def complete_activity(
             """
             UPDATE activities
             SET status = ?, details = ?, completed_at = ?
-            WHERE id = ? AND user_id = ? AND status = 'running'
+            WHERE id = ?
+              AND user_id = ?
+              AND workspace_id = ?
+              AND status = 'running'
             """,
             (
                 status,
@@ -998,6 +1504,7 @@ def complete_activity(
                 now,
                 activity_id,
                 user_id,
+                workspace_id,
             ),
         )
 
@@ -1005,6 +1512,9 @@ def complete_activity(
             "SELECT * FROM activities WHERE id = ?",
             (activity_id,),
         ).fetchone()
+
+    if row is None:
+        return None
 
     activity = dict(row)
     activity["details"] = json.loads(activity["details"])
@@ -1014,11 +1524,12 @@ def complete_activity(
 
 def list_activities(
     user_id: int,
+    workspace_id: str,
     owner: str | None = None,
     repo: str | None = None,
     limit: int = 50,
 ) -> list[dict]:
-    """List activities belonging to one user."""
+    """List activities belonging to one workspace."""
 
     if not isinstance(limit, int) or isinstance(limit, bool):
         raise ValueError("Invalid activity limit.")
@@ -1026,12 +1537,15 @@ def list_activities(
     if limit < 1 or limit > 100:
         raise ValueError("Activity limit must be between 1 and 100.")
 
+    if not isinstance(workspace_id, str) or not workspace_id.strip():
+        raise ValueError("Workspace ID is required.")
+
     query = """
         SELECT *
         FROM activities
-        WHERE user_id = ?
+        WHERE user_id = ? AND workspace_id = ?
     """
-    params = [user_id]
+    params = [user_id, workspace_id]
 
     if owner is not None:
         query += " AND owner = ?"
@@ -1045,6 +1559,18 @@ def list_activities(
     params.append(limit)
 
     with get_connection() as connection:
+        workspace = connection.execute(
+            """
+            SELECT id
+            FROM workspaces
+            WHERE id = ? AND user_id = ?
+            """,
+            (workspace_id, user_id),
+        ).fetchone()
+
+        if workspace is None:
+            raise ValueError("Workspace not found.")
+
         rows = connection.execute(query, params).fetchall()
 
     activities = []
@@ -1060,17 +1586,20 @@ def list_activities(
 def get_activity(
     activity_id: str,
     user_id: int,
+    workspace_id: str,
 ) -> dict | None:
-    """Retrieve one activity belonging to its owner."""
+    """Retrieve an activity belonging to its owner and workspace."""
 
     with get_connection() as connection:
         row = connection.execute(
             """
             SELECT *
             FROM activities
-            WHERE id = ? AND user_id = ?
+            WHERE id = ?
+              AND user_id = ?
+              AND workspace_id = ?
             """,
-            (activity_id, user_id),
+            (activity_id, user_id, workspace_id),
         ).fetchone()
 
     if row is None:
@@ -1080,3 +1609,390 @@ def get_activity(
     activity["details"] = json.loads(activity["details"])
 
     return activity
+
+
+
+def save_result(
+    user_id: int,
+    workspace_id: str,
+    owner: str,
+    repo: str,
+    result_type: str,
+    title: str,
+    content: dict,
+) -> dict:
+    """Create a saved repository result in an owned workspace."""
+
+    from uuid import uuid4
+
+    allowed_types = {
+        "summary",
+        "review",
+        "architecture",
+        "dependency",
+        "security",
+    }
+
+    if result_type not in allowed_types:
+        raise ValueError("Invalid saved result type.")
+
+    if not isinstance(content, dict):
+        raise ValueError("Saved result content must be a dictionary.")
+
+    if not workspace_id.strip():
+        raise ValueError("Workspace ID is required.")
+
+    if not owner.strip() or not repo.strip() or not title.strip():
+        raise ValueError("Owner, repository, and title are required.")
+
+    result_id = str(uuid4())
+    now = time.time()
+
+    with get_connection() as connection:
+        workspace = connection.execute(
+            """
+            SELECT id
+            FROM workspaces
+            WHERE id = ? AND user_id = ?
+            """,
+            (workspace_id, user_id),
+        ).fetchone()
+
+        if workspace is None:
+            raise ValueError("Workspace not found.")
+
+        connection.execute(
+            """
+            INSERT INTO saved_results (
+                id, user_id, workspace_id, owner, repo,
+                result_type, title, content, created_at, updated_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                result_id,
+                user_id,
+                workspace_id,
+                owner.strip(),
+                repo.strip(),
+                result_type,
+                title.strip(),
+                json.dumps(content),
+                now,
+                now,
+            ),
+        )
+
+        row = connection.execute(
+            """
+            SELECT *
+            FROM saved_results
+            WHERE id = ? AND user_id = ? AND workspace_id = ?
+            """,
+            (result_id, user_id, workspace_id),
+        ).fetchone()
+
+    result = dict(row)
+    result["content"] = json.loads(result["content"])
+    return result
+
+
+def list_saved_results(
+    user_id: int,
+    workspace_id: str,
+    owner: str | None = None,
+    repo: str | None = None,
+    result_type: str | None = None,
+    limit: int = 100,
+) -> list[dict]:
+    """List saved results belonging to one user and workspace."""
+
+    if not isinstance(limit, int) or isinstance(limit, bool):
+        raise ValueError("Invalid saved result limit.")
+
+    if limit < 1 or limit > 100:
+        raise ValueError("Saved result limit must be between 1 and 100.")
+
+    with get_connection() as connection:
+        workspace = connection.execute(
+            """
+            SELECT id
+            FROM workspaces
+            WHERE id = ? AND user_id = ?
+            """,
+            (workspace_id, user_id),
+        ).fetchone()
+
+        if workspace is None:
+            raise ValueError("Workspace not found.")
+
+        query = """
+            SELECT *
+            FROM saved_results
+            WHERE user_id = ? AND workspace_id = ?
+        """
+        params = [user_id, workspace_id]
+
+        if owner is not None:
+            query += " AND owner = ?"
+            params.append(owner)
+
+        if repo is not None:
+            query += " AND repo = ?"
+            params.append(repo)
+
+        if result_type is not None:
+            query += " AND result_type = ?"
+            params.append(result_type)
+
+        query += " ORDER BY updated_at DESC LIMIT ?"
+        params.append(limit)
+
+        rows = connection.execute(query, params).fetchall()
+
+    results = []
+
+    for row in rows:
+        result = dict(row)
+        result["content"] = json.loads(result["content"])
+        results.append(result)
+
+    return results
+
+
+def get_saved_result(
+    result_id: str,
+    user_id: int,
+    workspace_id: str,
+) -> dict | None:
+    """Retrieve one saved result from an owned workspace."""
+
+    with get_connection() as connection:
+        row = connection.execute(
+            """
+            SELECT *
+            FROM saved_results
+            WHERE id = ? AND user_id = ? AND workspace_id = ?
+            """,
+            (result_id, user_id, workspace_id),
+        ).fetchone()
+
+    if row is None:
+        return None
+
+    result = dict(row)
+    result["content"] = json.loads(result["content"])
+    return result
+
+
+def delete_saved_result(
+    result_id: str,
+    user_id: int,
+    workspace_id: str,
+) -> bool:
+    """Delete one saved result from an owned workspace."""
+
+    with get_connection() as connection:
+        cursor = connection.execute(
+            """
+            DELETE FROM saved_results
+            WHERE id = ? AND user_id = ? AND workspace_id = ?
+            """,
+            (result_id, user_id, workspace_id),
+        )
+
+    return cursor.rowcount > 0
+
+
+
+def get_user_preferences(user_id: int) -> dict:
+    """Retrieve preferences belonging to one user."""
+
+    with get_connection() as connection:
+        row = connection.execute(
+            """
+            SELECT preferences
+            FROM user_preferences
+            WHERE user_id = ?
+            """,
+            (user_id,),
+        ).fetchone()
+
+    if row is None:
+        return {}
+
+    preferences = json.loads(row["preferences"])
+
+    if not isinstance(preferences, dict):
+        return {}
+
+    return preferences
+
+
+def update_user_preferences(
+    user_id: int,
+    preferences: dict,
+) -> dict:
+    """Create or update preferences belonging to one user."""
+
+    if not isinstance(preferences, dict):
+        raise ValueError("Preferences must be a dictionary.")
+
+    try:
+        serialized = json.dumps(preferences)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("Preferences must contain valid JSON data.") from exc
+
+    updated_at = time.time()
+
+    with get_connection() as connection:
+        connection.execute(
+            """
+            INSERT INTO user_preferences (
+                user_id,
+                preferences,
+                updated_at
+            )
+            VALUES (?, ?, ?)
+            ON CONFLICT(user_id)
+            DO UPDATE SET
+                preferences = excluded.preferences,
+                updated_at = excluded.updated_at
+            """,
+            (user_id, serialized, updated_at),
+        )
+
+    return preferences
+
+
+def delete_user_preferences(user_id: int) -> bool:
+    """Delete preferences belonging to one user."""
+
+    with get_connection() as connection:
+        cursor = connection.execute(
+            """
+            DELETE FROM user_preferences
+            WHERE user_id = ?
+            """,
+            (user_id,),
+        )
+
+    return cursor.rowcount > 0
+
+def get_workspace_state(
+    workspace_id: str,
+    user_id: int,
+) -> dict | None:
+    """Retrieve all state values for an owned workspace."""
+
+    with get_connection() as connection:
+        workspace = connection.execute(
+            """
+            SELECT id
+            FROM workspaces
+            WHERE id = ? AND user_id = ?
+            """,
+            (workspace_id, user_id),
+        ).fetchone()
+
+        if workspace is None:
+            return None
+
+        rows = connection.execute(
+            """
+            SELECT state_key, state_value
+            FROM workspace_state
+            WHERE workspace_id = ? AND user_id = ?
+            """,
+            (workspace_id, user_id),
+        ).fetchall()
+
+    return {
+        row["state_key"]: json.loads(row["state_value"])
+        for row in rows
+    }
+
+
+def set_workspace_state(
+    workspace_id: str,
+    user_id: int,
+    state_key: str,
+    state_value: dict,
+) -> dict | None:
+    """Create or update one state value in an owned workspace."""
+
+    if not state_key.strip():
+        raise ValueError("State key cannot be blank.")
+
+    if not isinstance(state_value, dict):
+        raise ValueError("State value must be a dictionary.")
+
+    try:
+        serialized = json.dumps(state_value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("State value must contain valid JSON data.") from exc
+
+    updated_at = time.time()
+
+    with get_connection() as connection:
+        workspace = connection.execute(
+            """
+            SELECT id
+            FROM workspaces
+            WHERE id = ? AND user_id = ?
+            """,
+            (workspace_id, user_id),
+        ).fetchone()
+
+        if workspace is None:
+            return None
+
+        connection.execute(
+            """
+            INSERT INTO workspace_state (
+                id,
+                workspace_id,
+                user_id,
+                state_key,
+                state_value,
+                updated_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?)
+            ON CONFLICT(workspace_id, state_key)
+            DO UPDATE SET
+                state_value = excluded.state_value,
+                updated_at = excluded.updated_at
+            """,
+            (
+                str(uuid4()),
+                workspace_id,
+                user_id,
+                state_key.strip(),
+                serialized,
+                updated_at,
+            ),
+        )
+
+    return state_value
+
+
+def delete_workspace_state(
+    workspace_id: str,
+    user_id: int,
+    state_key: str,
+) -> bool:
+    """Delete one state value from an owned workspace."""
+
+    with get_connection() as connection:
+        cursor = connection.execute(
+            """
+            DELETE FROM workspace_state
+            WHERE workspace_id = ?
+              AND user_id = ?
+              AND state_key = ?
+            """,
+            (workspace_id, user_id, state_key),
+        )
+
+    return cursor.rowcount > 0
+

@@ -1,4 +1,4 @@
-
+﻿
 import pytest
 from fastapi.testclient import TestClient
 from fastapi import HTTPException
@@ -25,6 +25,12 @@ def pull_request_api_client(tmp_path, monkeypatch):
         "name": "Test User",
     })
 
+    database.create_workspace(
+        "test-workspace-1001",
+        1001,
+        "Test Workspace",
+    )
+
     app.dependency_overrides[get_current_session] = lambda: {
         "access_token": "test-token",
         "github_user": {
@@ -44,6 +50,7 @@ def pull_request_payload():
     return {
         "owner": "test-owner",
         "repo": "test-repo",
+        "workspace_id": "test-workspace-1001",
         "title": "Fix authentication bug",
         "body": "This PR fixes the authentication issue.",
         "head": "fix/authentication",
@@ -82,6 +89,7 @@ def test_pull_request_creates_successful_activity(
 
     response = pull_request_api_client.post(
         "/pull-request/",
+        params={"workspace_id": "test-workspace-1001"},
         json=pull_request_payload,
     )
 
@@ -90,6 +98,7 @@ def test_pull_request_creates_successful_activity(
 
     activities = database.list_activities(
         user_id=1001,
+        workspace_id="test-workspace-1001",
         owner="test-owner",
         repo="test-repo",
     )
@@ -134,6 +143,7 @@ def test_pull_request_records_failed_activity(
 
     response = pull_request_api_client.post(
         "/pull-request/",
+        params={"workspace_id": "test-workspace-1001"},
         json=pull_request_payload,
     )
 
@@ -141,6 +151,7 @@ def test_pull_request_records_failed_activity(
 
     activities = database.list_activities(
         user_id=1001,
+        workspace_id="test-workspace-1001",
         owner="test-owner",
         repo="test-repo",
     )
@@ -175,6 +186,7 @@ def test_pull_request_empty_result_records_failure(
 
     response = pull_request_api_client.post(
         "/pull-request/",
+        params={"workspace_id": "test-workspace-1001"},
         json=pull_request_payload,
     )
 
@@ -182,6 +194,7 @@ def test_pull_request_empty_result_records_failure(
 
     activities = database.list_activities(
         user_id=1001,
+        workspace_id="test-workspace-1001",
         owner="test-owner",
         repo="test-repo",
     )
@@ -210,11 +223,14 @@ def test_pull_request_access_denial_creates_no_activity(
 
     response = pull_request_api_client.post(
         "/pull-request/",
+        params={"workspace_id": "test-workspace-1001"},
         json=pull_request_payload,
     )
 
     assert response.status_code == 403
 
-    activities = database.list_activities(user_id=1001)
+    activities = database.list_activities(user_id=1001, workspace_id="test-workspace-1001")
 
     assert activities == []
+
+

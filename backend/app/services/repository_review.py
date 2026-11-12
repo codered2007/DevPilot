@@ -413,8 +413,10 @@ Repository source:
 
     except Exception as exc:
         print(
-            "Repository review failed:",
-            exc,
-        )
+        "Repository review failed:",
+        exc,
+    )
 
-        return None
+    raise RuntimeError(
+        f"Repository review failed: {exc}"
+    ) from exc

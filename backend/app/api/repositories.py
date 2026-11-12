@@ -1,5 +1,7 @@
+
 import httpx
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
+
 from app.database import (
     record_repository_open,
     get_repository_history,
@@ -9,7 +11,6 @@ from app.schemas.repository import (
     RepositoryHistoryRequest,
 )
 from app.api.dependencies import get_current_session
-from app.schemas.repository import RepositoryImportRequest
 from app.services.github_service import (
     get_repository,
     get_repository_tree,
@@ -43,7 +44,6 @@ def _raise_github_http_error(
 
     message = message.lower()
     retry_after = response.headers.get("Retry-After")
-
 
     is_rate_limited = (
         status_code == 429
@@ -97,7 +97,6 @@ def _raise_github_http_error(
     ) from error
 
 
-
 def _raise_github_network_error(
     error: httpx.RequestError,
     operation: str = "accessing the repository",
@@ -107,6 +106,32 @@ def _raise_github_network_error(
         status_code=502,
         detail=f"Unable to communicate with GitHub while {operation}.",
     ) from error
+
+
+def get_authenticated_user_id(session: dict) -> int:
+    """Extract and validate the authenticated GitHub user ID."""
+    github_user = session.get("github_user", {})
+    user_id = github_user.get("id") if isinstance(github_user, dict) else None
+
+    if not isinstance(user_id, int) or isinstance(user_id, bool):
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid user identity. Please sign in again.",
+        )
+
+    return user_id
+
+
+def validate_workspace_id(workspace_id: str) -> str:
+    """Validate a supplied workspace identifier."""
+    if not workspace_id or not workspace_id.strip():
+        raise HTTPException(
+            status_code=400,
+            detail="Workspace ID is required.",
+        )
+
+    return workspace_id.strip()
+
 
 @router.get("/")
 def list_repositories(
@@ -159,20 +184,25 @@ async def get_accessible_repository(
 
     return repository
 
+
 @router.get("/history")
 def list_repository_history(
+    workspace_id: str = Query(..., min_length=1),
     session: dict = Depends(get_current_session),
 ):
-    github_user = session.get("github_user", {})
-    user_id = github_user.get("id")
+    user_id = get_authenticated_user_id(session)
+    workspace_id = validate_workspace_id(workspace_id)
 
-    if not isinstance(user_id, int) or isinstance(user_id, bool):
-        raise HTTPException(
-            status_code=401,
-            detail="Invalid user identity. Please sign in again.",
+    try:
+        history = get_repository_history(
+            user_id=user_id,
+            workspace_id=workspace_id,
         )
-
-    history = get_repository_history(user_id)
+    except ValueError:
+        raise HTTPException(
+            status_code=404,
+            detail="Workspace not found.",
+        ) from None
 
     return {"repositories": history}
 
@@ -180,17 +210,12 @@ def list_repository_history(
 @router.post("/history")
 async def record_repository_history(
     payload: RepositoryHistoryRequest,
+    workspace_id: str = Query(..., min_length=1),
     session: dict = Depends(get_current_session),
 ):
-    github_user = session.get("github_user", {})
-    user_id = github_user.get("id")
+    user_id = get_authenticated_user_id(session)
+    workspace_id = validate_workspace_id(workspace_id)
     token = session.get("access_token")
-
-    if not isinstance(user_id, int) or isinstance(user_id, bool):
-        raise HTTPException(
-            status_code=401,
-            detail="Invalid user identity. Please sign in again.",
-        )
 
     repository = await get_accessible_repository(
         payload.owner.strip(),
@@ -213,13 +238,20 @@ async def record_repository_history(
             detail="GitHub returned invalid repository information.",
         )
 
-    record_repository_open(
-        user_id=user_id,
-        owner=owner,
-        repo=repo_name,
-        name=full_name or f"{owner}/{repo_name}",
-        description=repository.get("description") or "",
-    )
+    try:
+        record_repository_open(
+            user_id=user_id,
+            workspace_id=workspace_id,
+            owner=owner,
+            repo=repo_name,
+            name=full_name or f"{owner}/{repo_name}",
+            description=repository.get("description") or "",
+        )
+    except ValueError:
+        raise HTTPException(
+            status_code=404,
+            detail="Workspace not found.",
+        ) from None
 
     return {
         "message": "Repository history updated.",
@@ -229,6 +261,7 @@ async def record_repository_history(
             "name": full_name or f"{owner}/{repo_name}",
         },
     }
+
 
 async def get_repository_tree_safely(
     owner: str,

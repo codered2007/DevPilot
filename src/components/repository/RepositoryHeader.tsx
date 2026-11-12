@@ -1,5 +1,7 @@
+
 import { useState } from "react";
 import {
+  Bookmark,
   Code2,
   ExternalLink,
   GitBranch,
@@ -11,7 +13,11 @@ import {
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
-import { getRepositorySummary } from "../../services/api";
+import {
+  getRepositorySummary,
+  saveResult,
+} from "../../services/api";
+import { useWorkspace } from "../../context/useWorkspace";
 
 interface Props {
   repository: {
@@ -27,18 +33,28 @@ interface Props {
 }
 
 function RepositoryHeader({ repository }: Props) {
+  const { workspace } = useWorkspace();
+
   const [loading, setLoading] = useState(false);
   const [summary, setSummary] = useState("");
   const [error, setError] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [saveMessage, setSaveMessage] = useState("");
 
   async function analyzeRepository() {
+    if (!workspace?.id) {
+      setError("Select a workspace before generating a summary.");
+      return;
+    }
+
     try {
       setLoading(true);
       setError("");
 
       const result = await getRepositorySummary(
         repository.owner,
-        repository.repo
+        repository.repo,
+        workspace.id
       );
 
       setSummary(result.summary);
@@ -47,6 +63,39 @@ function RepositoryHeader({ repository }: Props) {
       setError("Unable to analyze this repository.");
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function handleSaveSummary() {
+    if (!summary || saving) return;
+
+    if (!workspace?.id) {
+      setSaveMessage("Select a workspace before saving this summary.");
+      return;
+    }
+
+    try {
+      setSaving(true);
+      setSaveMessage("");
+
+      await saveResult({
+        workspace_id: workspace.id,
+        owner: repository.owner,
+        repo: repository.repo,
+        result_type: "summary",
+        title: `Repository Summary - ${repository.owner}/${repository.repo}`,
+        content: { summary },
+      });
+
+      setSaveMessage("Repository summary saved successfully.");
+    } catch (err) {
+      setSaveMessage(
+        err instanceof Error
+          ? err.message
+          : "Failed to save repository summary."
+      );
+    } finally {
+      setSaving(false);
     }
   }
 
@@ -126,27 +175,47 @@ function RepositoryHeader({ repository }: Props) {
           </div>
 
           {/* Analyze Action */}
-          <button
-            type="button"
-            onClick={analyzeRepository}
-            disabled={loading}
-            className="inline-flex w-full shrink-0 items-center justify-center gap-2 rounded-lg bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white shadow-lg shadow-blue-600/10 transition-colors hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-50 lg:w-auto"
-          >
-            {loading ? (
-              <>
-                <LoaderCircle className="h-4 w-4 animate-spin" />
-                Analyzing...
-              </>
-            ) : (
-              <>
-                <Sparkles className="h-4 w-4" />
-                {summary
-                  ? "Re-analyze"
-                  : "Analyze Repository"}
-              </>
+          <div className="flex w-full flex-col gap-2 lg:w-auto lg:flex-row">
+            {summary && (
+              <button
+                type="button"
+                onClick={handleSaveSummary}
+                disabled={saving || !workspace?.id}
+                title={!workspace?.id ? "Select a workspace first" : "Save summary"}
+                className="inline-flex w-full items-center justify-center gap-2 rounded-lg border border-zinc-800 bg-zinc-950 px-5 py-2.5 text-sm font-medium text-zinc-400 transition-colors hover:border-zinc-700 hover:text-zinc-200 disabled:cursor-not-allowed disabled:opacity-50 lg:w-auto"
+              >
+                <Bookmark className="h-4 w-4" />
+                {saving ? "Saving..." : "Save Summary"}
+              </button>
             )}
-          </button>
+
+            <button
+              type="button"
+              onClick={analyzeRepository}
+              disabled={loading || !workspace?.id}
+              title={!workspace?.id ? "Select a workspace first" : "Analyze repository"}
+              className="inline-flex w-full shrink-0 items-center justify-center gap-2 rounded-lg bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white shadow-lg shadow-blue-600/10 transition-colors hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-50 lg:w-auto"
+            >
+              {loading ? (
+                <>
+                  <LoaderCircle className="h-4 w-4 animate-spin" />
+                  Analyzing...
+                </>
+              ) : (
+                <>
+                  <Sparkles className="h-4 w-4" />
+                  {summary ? "Re-analyze" : "Analyze Repository"}
+                </>
+              )}
+            </button>
+          </div>
         </div>
+
+        {saveMessage && (
+          <p className="mt-3 text-sm text-blue-400">
+            {saveMessage}
+          </p>
+        )}
       </div>
 
       {/* Error */}

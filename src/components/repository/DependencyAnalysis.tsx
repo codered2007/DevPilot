@@ -1,5 +1,7 @@
+
 import {
   AlertTriangle,
+  Bookmark,
   Box,
   ChevronDown,
   ChevronUp,
@@ -9,9 +11,10 @@ import {
   Server,
 } from "lucide-react";
 import { useState } from "react";
-
+import { useWorkspace } from "../../context/useWorkspace";
 import {
   analyzeRepositoryDependencies,
+  saveResult,
   type Dependency,
   type DependencyAnalysisResponse,
 } from "../../services/api";
@@ -102,21 +105,30 @@ export default function DependencyAnalysis({
   owner,
   repo,
 }: DependencyAnalysisProps) {
+  const { workspace } = useWorkspace();
+
   const [analysis, setAnalysis] =
     useState<DependencyAnalysisResponse | null>(null);
-
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showAll, setShowAll] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [saveMessage, setSaveMessage] = useState("");
 
   async function runAnalysis() {
+    if (!workspace?.id) {
+      setError("Select a workspace before running dependency analysis.");
+      return;
+    }
+
     setLoading(true);
     setError(null);
 
     try {
       const result = await analyzeRepositoryDependencies(
         owner,
-        repo
+        repo,
+        workspace.id
       );
 
       setAnalysis(result);
@@ -131,6 +143,39 @@ export default function DependencyAnalysis({
     }
   }
 
+  async function handleSaveAnalysis() {
+    if (!analysis || saving) return;
+
+    if (!workspace?.id) {
+      setSaveMessage("Select a workspace before saving this analysis.");
+      return;
+    }
+
+    try {
+      setSaving(true);
+      setSaveMessage("");
+
+      await saveResult({
+        workspace_id: workspace.id,
+        owner,
+        repo,
+        result_type: "dependency",
+        title: `Dependency Analysis - ${owner}/${repo}`,
+        content: { ...analysis },
+      });
+
+      setSaveMessage("Dependency analysis saved successfully.");
+    } catch (err) {
+      setSaveMessage(
+        err instanceof Error
+          ? err.message
+          : "Failed to save dependency analysis."
+      );
+    } finally {
+      setSaving(false);
+    }
+  }
+
   const dependencies = analysis?.dependencies ?? [];
 
   const visibleDependencies = showAll
@@ -140,7 +185,7 @@ export default function DependencyAnalysis({
   return (
     <section className="min-w-0 overflow-hidden rounded-2xl border border-zinc-800/80 bg-zinc-900/60">
       {/* Header */}
-      <div className="flex min-w-0 flex-col gap-4 border-b border-zinc-800/80 bg-zinc-900/80 px-4 py-4 sm:px-5 sm:flex-row sm:items-center sm:justify-between">
+      <div className="flex min-w-0 flex-col gap-4 border-b border-zinc-800/80 bg-zinc-900/80 px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-5">
         <div className="flex min-w-0 items-start gap-3">
           <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-zinc-800 bg-zinc-950">
             <Package className="h-4 w-4 text-blue-400" />
@@ -157,25 +202,40 @@ export default function DependencyAnalysis({
           </div>
         </div>
 
-        <button
-          type="button"
-          onClick={runAnalysis}
-          disabled={loading}
-          className="inline-flex w-full shrink-0 items-center justify-center gap-2 rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-2 text-xs font-medium text-zinc-400 transition-colors hover:border-zinc-700 hover:text-zinc-200 disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto"
-        >
-          <RefreshCw
-            className={`h-3.5 w-3.5 ${
-              loading ? "animate-spin" : ""
-            }`}
-          />
+        <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
+          {analysis && (
+            <button
+              type="button"
+              onClick={handleSaveAnalysis}
+              disabled={saving || !workspace?.id}
+              title={!workspace?.id ? "Select a workspace first" : "Save analysis"}
+              className="inline-flex w-full items-center justify-center gap-2 rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-2 text-xs font-medium text-zinc-400 transition-colors hover:border-zinc-700 hover:text-zinc-200 disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto"
+            >
+              <Bookmark className="h-3.5 w-3.5" />
+              {saving ? "Saving..." : "Save Analysis"}
+            </button>
+          )}
 
-          {loading
-            ? "Analyzing..."
-            : analysis
-              ? "Refresh"
-              : "Analyze"}
-        </button>
+          <button
+            type="button"
+            onClick={runAnalysis}
+            disabled={loading || !workspace?.id}
+            title={!workspace?.id ? "Select a workspace first" : "Analyze dependencies"}
+            className="inline-flex w-full shrink-0 items-center justify-center gap-2 rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-2 text-xs font-medium text-zinc-400 transition-colors hover:border-zinc-700 hover:text-zinc-200 disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto"
+          >
+            <RefreshCw
+              className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`}
+            />
+            {loading ? "Analyzing..." : analysis ? "Refresh" : "Analyze"}
+          </button>
+        </div>
       </div>
+
+      {saveMessage && (
+        <p className="px-5 pt-3 text-xs text-blue-400">
+          {saveMessage}
+        </p>
+      )}
 
       {/* Error */}
       {error && (
@@ -246,16 +306,14 @@ export default function DependencyAnalysis({
               </div>
 
               <div className="mt-2 flex flex-wrap gap-1.5">
-                {analysis.summary.ecosystems.map(
-                  (ecosystem) => (
-                    <span
-                      key={ecosystem}
-                      className="rounded-md border border-zinc-800 bg-zinc-900 px-2 py-1 text-[10px] font-medium uppercase tracking-wide text-zinc-400"
-                    >
-                      {ecosystem}
-                    </span>
-                  )
-                )}
+                {analysis.summary.ecosystems.map((ecosystem) => (
+                  <span
+                    key={ecosystem}
+                    className="rounded-md border border-zinc-800 bg-zinc-900 px-2 py-1 text-[10px] font-medium uppercase tracking-wide text-zinc-400"
+                  >
+                    {ecosystem}
+                  </span>
+                ))}
               </div>
             </div>
           </div>
@@ -306,14 +364,12 @@ export default function DependencyAnalysis({
                   <span>Ecosystem</span>
                 </div>
 
-                {visibleDependencies.map(
-                  (dependency, index) => (
-                    <DependencyRow
-                      key={`${dependency.manifest}-${dependency.name}-${dependency.scope}-${index}`}
-                      dependency={dependency}
-                    />
-                  )
-                )}
+                {visibleDependencies.map((dependency, index) => (
+                  <DependencyRow
+                    key={`${dependency.manifest}-${dependency.name}-${dependency.scope}-${index}`}
+                    dependency={dependency}
+                  />
+                ))}
               </div>
             </div>
           </div>
@@ -322,9 +378,7 @@ export default function DependencyAnalysis({
           {dependencies.length > 12 && (
             <button
               type="button"
-              onClick={() =>
-                setShowAll((current) => !current)
-              }
+              onClick={() => setShowAll((current) => !current)}
               className="mx-auto mt-4 flex items-center gap-2 rounded-lg border border-zinc-800 bg-zinc-950 px-4 py-2 text-xs font-medium text-zinc-500 transition-colors hover:border-zinc-700 hover:text-zinc-200"
             >
               {showAll ? (

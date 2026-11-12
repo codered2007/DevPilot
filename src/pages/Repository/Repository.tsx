@@ -1,6 +1,6 @@
-import { useEffect, useState } from "react";
+﻿import { useEffect, useRef, useState } from "react";
 import { Base64 } from "js-base64";
-
+import { useWorkspace } from "../../context/useWorkspace";
 import RepositoryHeader from "../../components/repository/RepositoryHeader";
 import RepositoryStats from "../../components/repository/RepositoryStats";
 import FileTree from "../../components/repository/FileTree";
@@ -18,6 +18,7 @@ import {
   reviewRepository,
   generateCodeAction,
   analyzeRepositoryArchitecture,
+  saveResult,
 } from "../../services/api";
 
 import type {
@@ -30,6 +31,7 @@ import { getRepositoryStats } from "../../utils/repositoryStats";
 
 import {
   AlertTriangle,
+  Bookmark,
   CircleAlert,
   CircleCheck,
   Download,
@@ -62,8 +64,15 @@ type ReviewFindingStatuses = Record<string, ReviewFindingStatus>;
 
 function Repository() {
   const { repository } = useRepository();
-  const [githubLogin, setGithubLogin] = useState<string | null>(null);
+  const { workspace } = useWorkspace();
+  const activeWorkspaceIdRef = useRef(workspace?.id ?? null);
+  const fileRequestIdRef = useRef(0);
+  activeWorkspaceIdRef.current = workspace?.id ?? null;
 
+  function isCurrentWorkspace(requestWorkspaceId: string) {
+    return activeWorkspaceIdRef.current === requestWorkspaceId;
+  }
+  const [githubLogin, setGithubLogin] = useState<string | null>(null);
   useEffect(() => {
     let cancelled = false;
 
@@ -121,7 +130,8 @@ function Repository() {
 
   const [reviewing, setReviewing] =
     useState(false);
-
+  const [reviewSaving, setReviewSaving] = useState(false);
+  const [reviewSaveMessage, setReviewSaveMessage] = useState("");
   const [reviewResult, setReviewResult] =
     useState<RepositoryReviewResponse | null>(
       null
@@ -138,7 +148,11 @@ function Repository() {
 
   const [architectureError, setArchitectureError] =
     useState("");
+  const [architectureSaving, setArchitectureSaving] =
+  useState(false);
 
+  const [architectureSaveMessage, setArchitectureSaveMessage] =
+  useState("");
 
   const [reviewLine, setReviewLine] =
     useState<number | null>(null);
@@ -173,6 +187,38 @@ function Repository() {
 
   const [findingStatuses, setFindingStatuses] =
     useState<ReviewFindingStatuses>({});
+
+  useEffect(() => {
+  fileRequestIdRef.current += 1;
+  // Clear results belonging to the previous workspace.
+  setReviewing(false);
+  setReviewSaving(false);
+  setReviewSaveMessage("");
+  setReviewResult(null);
+  setReviewError("");
+
+  setArchitectureLoading(false);
+  setArchitectureSaving(false);
+  setArchitectureSaveMessage("");
+  setArchitectureResult(null);
+  setArchitectureError("");
+
+  setReviewLine(null);
+  setFixingFinding(null);
+  setFixError("");
+
+  setReviewFilter("all");
+  setSelectedHistoryIndex(null);
+
+  // Clear the currently displayed file.
+  setSelectedFilePath("");
+  setFileContent("");
+
+  // History and statuses are reloaded by their existing
+  // workspace-scoped effects.
+  setReviewHistory([]);
+  setFindingStatuses({});
+}, [workspace?.id, repository?.owner, repository?.repo]);
 
   const tree = buildFileTree(files);
 
@@ -242,7 +288,7 @@ const getFindingKey = (
     finding: (typeof reviewFindings)[number],
     status: ReviewFindingStatus
   ) {
-    if (!repository || !githubLogin) return;
+    if (!repository || !githubLogin || !workspace?.id) return;
 
     const key = getFindingKey(finding);
     const updatedStatuses = {
@@ -251,7 +297,7 @@ const getFindingKey = (
     };
 
     const storageKey =
-  `devpilot-review-status:${githubLogin}:${repository.owner}/${repository.repo}`;
+  `devpilot-review-status:${githubLogin}:${workspace.id}:${repository.owner}/${repository.repo}`;
 
     localStorage.setItem(
       storageKey,
@@ -439,7 +485,7 @@ const persistentFindings =
    */
   useEffect(() => {
 
-    if (!repository || !githubLogin) {
+    if (!repository || !githubLogin || !workspace?.id) {
       setReviewHistory([]);
       setSelectedHistoryIndex(null);
       return;
@@ -447,7 +493,7 @@ const persistentFindings =
 
 
     const storageKey =
-  `devpilot-review-history:${githubLogin}:${repository.owner}/${repository.repo}`;
+  `devpilot-review-history:${githubLogin}:${workspace.id}:${repository.owner}/${repository.repo}`;
 
 
     try {
@@ -497,17 +543,17 @@ const persistentFindings =
 
     }
 
-  }, [repository, githubLogin]);
+  }, [repository, githubLogin, workspace?.id]);
 
 
   useEffect(() => {
-    if (!repository || !githubLogin) {
+    if (!repository || !githubLogin || !workspace?.id) {
   setFindingStatuses({});
   return;
 }
 
     const storageKey =
-  `devpilot-review-status:${githubLogin}:${repository.owner}/${repository.repo}`;
+  `devpilot-review-status:${githubLogin}:${workspace.id}:${repository.owner}/${repository.repo}`;
 
     try {
       const stored = localStorage.getItem(storageKey);
@@ -531,59 +577,58 @@ const persistentFindings =
       );
       setFindingStatuses({});
     }
-  }, [repository, githubLogin]);
+  }, [repository, githubLogin, workspace?.id]);
 
 
   /*
    * Load repository tree.
    */
   useEffect(() => {
+  let cancelled = false;
 
-    async function loadTree() {
-
-      if (!repository) return;
-
-
-      try {
-
-        setLoading(true);
-        setError("");
-
-
-        const tree =
-          await getRepositoryTree(
-            repository.owner,
-            repository.repo
-          );
-
-
-        setFiles(tree);
-
-      } catch (err) {
-
-        console.error(
-          "Failed to load repository tree:",
-          err
-        );
-
-
-        setError(
-          "Failed to load repository tree."
-        );
-
-      } finally {
-
-        setLoading(false);
-
-      }
-
+  async function loadTree() {
+    if (!repository) {
+      setFiles([]);
+      setLoading(false);
+      setError("");
+      return;
     }
 
+    try {
+      setLoading(true);
+      setError("");
+      setFiles([]);
 
-    loadTree();
+      const tree = await getRepositoryTree(
+        repository.owner,
+        repository.repo
+      );
 
-  }, [repository]);
+      if (cancelled) return;
 
+      setFiles(tree);
+    } catch (err) {
+      if (cancelled) return;
+
+      console.error(
+        "Failed to load repository tree:",
+        err
+      );
+
+      setError("Failed to load repository tree.");
+    } finally {
+      if (!cancelled) {
+        setLoading(false);
+      }
+    }
+  }
+
+  void loadTree();
+
+  return () => {
+    cancelled = true;
+  };
+}, [repository?.owner, repository?.repo]);
 
   /*
    * Select and load a repository file.
@@ -612,7 +657,7 @@ const persistentFindings =
       return;
 
     }
-
+    const requestId = ++fileRequestIdRef.current;
 
     try {
 
@@ -629,6 +674,9 @@ const persistentFindings =
           repository.repo,
           path
         );
+      if (requestId !== fileRequestIdRef.current) {
+  return;
+}
 
 
       if (!file || !file.content) {
@@ -649,18 +697,13 @@ const persistentFindings =
       setFileContent(decoded);
 
     } catch (err) {
+  if (requestId !== fileRequestIdRef.current) {
+    return;
+  }
 
-      console.error(
-        "Failed to load file:",
-        err
-      );
-
-
-      setFileContent(
-        "Unable to load file."
-      );
-
-    }
+  console.error("Failed to load file:", err);
+  setFileContent("Unable to load file.");
+}
 
   }
 
@@ -682,8 +725,11 @@ const persistentFindings =
    */
   async function handleReviewRepository() {
 
-    if (!repository || !githubLogin) return;
-
+    if (!repository || !githubLogin || !workspace?.id) {
+  setReviewError("Select a workspace before reviewing the repository.");
+  return;
+}
+    const requestWorkspaceId = workspace.id;
 
     try {
 
@@ -704,11 +750,15 @@ const persistentFindings =
       setSelectedHistoryIndex(null);
 
 
-      const result =
-        await reviewRepository(
-          repository.owner,
-          repository.repo
-        );
+      const result = await reviewRepository(
+  repository.owner,
+  repository.repo,
+  requestWorkspaceId
+);
+
+if (!isCurrentWorkspace(requestWorkspaceId)) {
+  return;
+}
 
 
       /*
@@ -716,7 +766,7 @@ const persistentFindings =
        * local history.
        */
       const storageKey =
-  `devpilot-review-history:${githubLogin}:${repository.owner}/${repository.repo}`;
+  `devpilot-review-history:${githubLogin}:${workspace.id}:${repository.owner}/${repository.repo}`;
 
       const reviewEntry: ReviewHistoryEntry = {
         ...result,
@@ -750,26 +800,63 @@ const persistentFindings =
       );
 
     } catch (err) {
+  if (!isCurrentWorkspace(requestWorkspaceId)) {
+    return;
+  }
 
-      console.error(
-        "Failed to review repository:",
-        err
-      );
+  console.error("Failed to review repository:", err);
 
-
-      setReviewError(
-        err instanceof Error
-          ? err.message
-          : "Failed to review repository."
-      );
-
-    } finally {
-
-      setReviewing(false);
-
-    }
+  setReviewError(
+    err instanceof Error
+      ? err.message
+      : "Failed to review repository."
+  );
+} finally {
+  if (isCurrentWorkspace(requestWorkspaceId)) {
+    setReviewing(false);
+  }
+}
 
   }
+  
+async function handleSaveReview() {
+  if (!repository || !reviewResult || reviewSaving) {
+    return;
+  }
+
+  if (!workspace?.id) {
+    setReviewSaveMessage(
+      "Select a workspace before saving the repository review."
+    );
+    return;
+  }
+
+  try {
+    setReviewSaving(true);
+    setReviewSaveMessage("");
+
+    await saveResult({
+      workspace_id: workspace.id,
+      owner: repository.owner,
+      repo: repository.repo,
+      result_type: "review",
+      title: `Repository Review - ${repository.owner}/${repository.repo}`,
+      content: { ...reviewResult },
+    });
+
+    setReviewSaveMessage(
+      "Repository review saved successfully."
+    );
+  } catch (err) {
+    setReviewSaveMessage(
+      err instanceof Error
+        ? err.message
+        : "Failed to save repository review."
+    );
+  } finally {
+    setReviewSaving(false);
+  }
+}
 
 
   /*
@@ -777,34 +864,88 @@ const persistentFindings =
    * review finding.
    */
   async function handleAnalyzeArchitecture() {
-    if (!repository) return;
+    if (!repository || !workspace?.id) {
+  setArchitectureError("Select a workspace before analyzing architecture.");
+  return;
+}
+  const requestWorkspaceId = workspace.id;
 
     try {
-      setArchitectureLoading(true);
-      setArchitectureError("");
+  setArchitectureLoading(true);
+  setArchitectureError("");
+  setArchitectureResult(null);
 
-      const result =
-        await analyzeRepositoryArchitecture(
-          repository.owner,
-          repository.repo
-        );
+  const result = await analyzeRepositoryArchitecture(
+    repository.owner,
+    repository.repo,
+    requestWorkspaceId
+  );
 
-      setArchitectureResult(result);
-    } catch (err) {
-      console.error(
-        "Failed to analyze repository architecture:",
-        err
-      );
-
-      setArchitectureError(
-        err instanceof Error
-          ? err.message
-          : "Failed to analyze repository architecture."
-      );
-    } finally {
-      setArchitectureLoading(false);
-    }
+  if (!isCurrentWorkspace(requestWorkspaceId)) {
+    return;
   }
+
+  setArchitectureResult(result);
+} catch (err) {
+  if (!isCurrentWorkspace(requestWorkspaceId)) {
+    return;
+  }
+
+  console.error(
+    "Failed to analyze repository architecture:",
+    err
+  );
+
+  setArchitectureError(
+    err instanceof Error
+      ? err.message
+      : "Failed to analyze repository architecture."
+  );
+} finally {
+  if (isCurrentWorkspace(requestWorkspaceId)) {
+    setArchitectureLoading(false);
+  }
+}
+}
+  
+async function handleSaveArchitecture() {
+  if (!repository || !architectureResult || architectureSaving) {
+    return;
+  }
+
+  if (!workspace?.id) {
+    setArchitectureSaveMessage(
+      "Select a workspace before saving architecture analysis."
+    );
+    return;
+  }
+
+  try {
+    setArchitectureSaving(true);
+    setArchitectureSaveMessage("");
+
+    await saveResult({
+      workspace_id: workspace.id,
+      owner: repository.owner,
+      repo: repository.repo,
+      result_type: "architecture",
+      title: `Architecture Analysis - ${repository.owner}/${repository.repo}`,
+      content: { ...architectureResult },
+    });
+
+    setArchitectureSaveMessage(
+      "Architecture analysis saved successfully."
+    );
+  } catch (err) {
+    setArchitectureSaveMessage(
+      err instanceof Error
+        ? err.message
+        : "Failed to save architecture analysis."
+    );
+  } finally {
+    setArchitectureSaving(false);
+  }
+}
 
 
   async function handleReviewFinding(
@@ -829,7 +970,12 @@ const persistentFindings =
     lineStart: number | null
   ) {
 
-    if (!repository) return;
+    if (!repository || !workspace?.id) {
+  setFixError("Select a workspace before generating a fix.");
+  return;
+}
+    const requestWorkspaceId = workspace.id;
+    const requestFileId = ++fileRequestIdRef.current;
 
 
     try {
@@ -856,6 +1002,12 @@ const persistentFindings =
           repository.repo,
           filePath
         );
+      if (
+  !isCurrentWorkspace(requestWorkspaceId) ||
+  requestFileId !== fileRequestIdRef.current
+) {
+  return;
+}
 
 
       if (!file || !file.content) {
@@ -880,31 +1032,21 @@ const persistentFindings =
        * Generate a Fix proposal using the
        * existing AI code-action system.
        */
-      const result =
-        await generateCodeAction(
-          repository.owner,
-          repository.repo,
-          filePath,
-          decoded,
-          "fix"
-        );
+      const result = await generateCodeAction(
+  repository.owner,
+  repository.repo,
+  filePath,
+  decoded,
+  "fix",
+  requestWorkspaceId
+);
 
-
-      /*
-       * Store the generated result so
-       * CodeViewer can consume it.
-       */
-      sessionStorage.setItem(
-        "devpilot_review_fix",
-        JSON.stringify({
-          filePath,
-          lineStart,
-          code: decoded,
-          modifiedCode:
-            result.modified_code,
-        })
-      );
-
+if (
+  !isCurrentWorkspace(requestWorkspaceId) ||
+  requestFileId !== fileRequestIdRef.current
+) {
+  return;
+}
 
       /*
        * Trigger a custom browser event so
@@ -921,30 +1063,35 @@ const persistentFindings =
               code: decoded,
               modifiedCode:
                 result.modified_code,
+              workspaceId: requestWorkspaceId,
             },
           }
         )
       );
 
     } catch (err) {
+  if (
+  !isCurrentWorkspace(requestWorkspaceId) ||
+  requestFileId !== fileRequestIdRef.current
+) {
+  return;
+}
 
-      console.error(
-        "Failed to fix review finding:",
-        err
-      );
+  console.error(
+    "Failed to fix review finding:",
+    err
+  );
 
-
-      setFixError(
-        err instanceof Error
-          ? err.message
-          : "Failed to generate a fix."
-      );
-
+  setFixError(
+    err instanceof Error
+      ? err.message
+      : "Failed to generate a fix."
+  );
     } finally {
-
-      setFixingFinding(null);
-
-    }
+  if (isCurrentWorkspace(requestWorkspaceId)) {
+    setFixingFinding(null);
+  }
+}
 
   }
 
@@ -979,11 +1126,11 @@ const persistentFindings =
     index: number
   ) {
 
-    if (!repository || !githubLogin) return;
+    if (!repository || !githubLogin || !workspace?.id) return;
 
 
     const storageKey =
-  `devpilot-review-history:${githubLogin}:${repository.owner}/${repository.repo}`;
+  `devpilot-review-history:${githubLogin}:${workspace.id}:${repository.owner}/${repository.repo}`;
 
     const updatedHistory =
       reviewHistory.filter(
@@ -1088,42 +1235,45 @@ const persistentFindings =
           </div>
 
 
-          <button
-            onClick={
-              handleReviewRepository
-            }
-            disabled={reviewing}
-            className="flex shrink-0 items-center justify-center gap-2 rounded-lg bg-zinc-100 px-5 py-2.5 text-zinc-900 transition hover:bg-white disabled:cursor-not-allowed disabled:opacity-50"
-          >
+          <div className="flex flex-wrap gap-3">
+  {reviewResult && (
+    <button
+      type="button"
+      onClick={handleSaveReview}
+      disabled={reviewSaving}
+      className="flex items-center justify-center gap-2 rounded-lg border border-zinc-700 px-5 py-2.5 text-zinc-200 transition hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-50"
+    >
+      <Bookmark size={18} />
+      {reviewSaving ? "Saving..." : "Save Review"}
+    </button>
+  )}
 
-            {reviewing ? (
-
-              <>
-
-                <RefreshCw
-                  size={18}
-                  className="animate-spin"
-                />
-
-                Reviewing...
-
-              </>
-
-            ) : (
-
-              <>
-
-                <Sparkles size={18} />
-
-                Review Repository
-
-              </>
-
-            )}
-
-          </button>
+  <button
+    type="button"
+    onClick={handleReviewRepository}
+    disabled={reviewing}
+    className="flex shrink-0 items-center justify-center gap-2 rounded-lg bg-zinc-100 px-5 py-2.5 text-zinc-900 transition hover:bg-white disabled:cursor-not-allowed disabled:opacity-50"
+  >
+    {reviewing ? (
+      <>
+        <RefreshCw size={18} className="animate-spin" />
+        Reviewing...
+      </>
+    ) : (
+      <>
+        <Sparkles size={18} />
+        Review Repository
+      </>
+    )}
+  </button>
+</div>
 
         </div>
+        {reviewSaveMessage && (
+  <p className="mt-3 text-sm text-blue-400">
+    {reviewSaveMessage}
+  </p>
+)}
 
 
         {reviewError && (
@@ -1166,16 +1316,44 @@ const persistentFindings =
             </p>
           </div>
 
-          <button type="button" onClick={handleAnalyzeArchitecture} disabled={architectureLoading}
-            className="flex shrink-0 items-center justify-center gap-2 rounded-lg bg-zinc-100 px-5 py-2.5 text-zinc-900 transition hover:bg-white disabled:cursor-not-allowed disabled:opacity-50">
-            {architectureLoading ? (<>
-              <RefreshCw size={18} className="animate-spin" /> Analyzing...
-            </>) : (<>
-              <Sparkles size={18} /> Analyze Architecture
-            </>)}
-          </button>
-        </div>
+          <div className="flex flex-wrap gap-3">
+  {architectureResult && (
+    <button
+      type="button"
+      onClick={handleSaveArchitecture}
+      disabled={architectureSaving}
+      className="flex items-center justify-center gap-2 rounded-lg border border-zinc-700 px-5 py-2.5 text-zinc-200 transition hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-50"
+    >
+      <Bookmark size={18} />
+      {architectureSaving ? "Saving..." : "Save Analysis"}
+    </button>
+  )}
 
+  <button
+    type="button"
+    onClick={handleAnalyzeArchitecture}
+    disabled={architectureLoading}
+    className="flex shrink-0 items-center justify-center gap-2 rounded-lg bg-zinc-100 px-5 py-2.5 text-zinc-900 transition hover:bg-white disabled:cursor-not-allowed disabled:opacity-50"
+  >
+    {architectureLoading ? (
+      <>
+        <RefreshCw size={18} className="animate-spin" />
+        Analyzing...
+      </>
+    ) : (
+      <>
+        <Sparkles size={18} />
+        Analyze Architecture
+      </>
+    )}
+  </button>
+</div>
+        </div>
+        {architectureSaveMessage && (
+  <p className="mt-3 text-sm text-blue-400">
+    {architectureSaveMessage}
+  </p>
+)}
         {architectureError && (
           <div className="mt-5 rounded-2xl border border-red-700 bg-red-900/20 p-5 text-red-400">
             {architectureError}
@@ -1246,7 +1424,7 @@ const persistentFindings =
                         {sourceExists ? (
                           <button type="button" onClick={() => handleSelectFile(dependency.source)} className="min-w-0 flex-1 truncate text-left font-mono text-xs text-zinc-300 hover:text-white">{dependency.source}</button>
                         ) : <span className="min-w-0 flex-1 truncate font-mono text-xs text-zinc-500">{dependency.source}</span>}
-                        <span className="text-xs text-zinc-600">→</span>
+                        <span className="text-xs text-zinc-600">â†’</span>
                         {targetExists ? (
                           <button type="button" onClick={() => handleSelectFile(dependency.target)} className="min-w-0 flex-1 truncate text-left font-mono text-xs text-zinc-300 hover:text-white">{dependency.target}</button>
                         ) : <span className="min-w-0 flex-1 truncate font-mono text-xs text-zinc-500">{dependency.target}</span>}
@@ -1371,6 +1549,7 @@ const persistentFindings =
     <AIChatPanel
       owner={repository.owner}
       repo={repository.repo}
+      workspaceId={workspace?.id ?? null}
       onSelectFile={handleSelectFile}
     />
   </div>
@@ -1843,7 +2022,7 @@ const persistentFindings =
                           <div
                             key={`${entry.reviewedAt}-${index}`}
                             className="flex min-w-14 flex-1 flex-col items-center justify-end gap-2"
-                            title={`${entry.total} findings — ${new Date(entry.reviewedAt).toLocaleString()}`}
+                            title={`${entry.total} findings â€” ${new Date(entry.reviewedAt).toLocaleString()}`}
                           >
                             <span className="text-xs font-semibold text-zinc-300">
                               {entry.total}
@@ -2335,3 +2514,4 @@ const persistentFindings =
 
 
 export default Repository;
+

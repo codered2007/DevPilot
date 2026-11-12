@@ -3,7 +3,7 @@ import re
 import uuid
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 
 from app import database
 from app.api.dependencies import get_current_session
@@ -51,6 +51,7 @@ def create_branch_name(
 @router.post("/")
 async def apply_code(
     request: ApplyCodeRequest,
+    workspace_id: str = Query(..., min_length=1),
     session: dict = Depends(get_current_session),
 ):
     token = session.get("access_token")
@@ -78,6 +79,7 @@ async def apply_code(
     if isinstance(user_id, int) and not isinstance(user_id, bool):
         activity = database.create_activity(
             user_id=user_id,
+            workspace_id=workspace_id,
             owner=request.owner,
             repo=request.repo,
             action_type="apply_code",
@@ -159,6 +161,7 @@ async def apply_code(
             database.complete_activity(
                 activity_id=activity["id"],
                 user_id=user_id,
+                workspace_id=workspace_id,
                 status="success",
                 details={
                     "file_path": request.file_path,
@@ -187,6 +190,7 @@ async def apply_code(
             database.complete_activity(
                 activity_id=activity["id"],
                 user_id=user_id,
+                workspace_id=workspace_id,
                 status="failed",
                 details={"error_type": "HTTPException"},
             )
@@ -197,6 +201,7 @@ async def apply_code(
             database.complete_activity(
                 activity_id=activity["id"],
                 user_id=user_id,
+                workspace_id=workspace_id,
                 status="failed",
                 details={"error_type": type(error).__name__},
             )
@@ -211,6 +216,7 @@ async def apply_code(
             database.complete_activity(
                 activity_id=activity["id"],
                 user_id=user_id,
+                workspace_id=workspace_id,
                 status="failed",
                 details={"error_type": type(error).__name__},
             )
@@ -225,6 +231,7 @@ async def apply_code(
             database.complete_activity(
                 activity_id=activity["id"],
                 user_id=user_id,
+                workspace_id=workspace_id,
                 status="failed",
                 details={"error_type": type(exc).__name__},
             )

@@ -1,354 +1,496 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+
 import {
+
   BookOpen,
+
   Check,
+
   Copy,
+
   ExternalLink,
+
   RefreshCw,
+
   Sparkles,
+
   WandSparkles,
+
   Wrench,
+
 } from "lucide-react";
+
 import Editor, { DiffEditor } from "@monaco-editor/react";
+
 import type { OnMount } from "@monaco-editor/react";
+
 import type { editor } from "monaco-editor";
+
 import ReactMarkdown from "react-markdown";
 
 import Breadcrumbs from "./Breadcrumbs";
 
+import { useWorkspace } from "../../context/useWorkspace";
+
 import {
+
   applyCodeToGitHub,
+
   createPullRequest,
+
   explainCode,
+
   generateCodeAction,
+
 } from "../../services/api";
 
 interface CodeViewerProps {
+
   owner: string;
+
   repo: string;
+
   file?: string;
+
   fileName?: string;
+
   onApplyCode: (code: string) => void;
+
   reviewLine?: number | null;
+
 }
 
 function getLanguage(fileName?: string) {
+
   if (!fileName) return "plaintext";
 
-  const extension = fileName
-    .split(".")
-    .pop()
-    ?.toLowerCase();
+  const extension = fileName.split(".").pop()?.toLowerCase();
 
   switch (extension) {
+
     case "ts":
+
     case "tsx":
+
       return "typescript";
+
     case "js":
+
     case "jsx":
+
       return "javascript";
+
     case "py":
+
       return "python";
+
     case "json":
+
       return "json";
+
     case "md":
+
       return "markdown";
+
     case "html":
+
       return "html";
+
     case "css":
+
       return "css";
+
     case "java":
+
       return "java";
+
     case "cpp":
+
       return "cpp";
+
     case "c":
+
       return "c";
+
     case "go":
+
       return "go";
+
     case "rs":
+
       return "rust";
+
     case "yml":
+
     case "yaml":
+
       return "yaml";
+
     default:
+
       return "plaintext";
+
   }
+
 }
 
 type CodeAction = "fix" | "improve" | "refactor";
 
 interface GitHubApplyResult {
+
   branch: string;
+
   base_branch: string;
+
   commit_sha: string;
+
   commit_url: string;
+
 }
 
 interface ReviewFixEventDetail {
+
+  workspaceId: string;
+
   filePath: string;
+
   lineStart: number | null;
+
   code: string;
+
   modifiedCode: string;
+
 }
 
 function CodeViewer({
-  owner,
-  repo,
-  file,
-  fileName,
-  onApplyCode,
-  reviewLine,
-}: CodeViewerProps) {
-  const [explaining, setExplaining] =
-    useState(false);
-  const [explanation, setExplanation] = useState("");
-  const [explanationError, setExplanationError] =
-    useState("");
 
-  const [codeAction, setCodeAction] =
-    useState<CodeAction | null>(null);
-  const [completedAction, setCompletedAction] =
-    useState<CodeAction | null>(null);
+  owner,
+
+  repo,
+
+  file,
+
+  fileName,
+
+  onApplyCode,
+
+  reviewLine,
+
+}: CodeViewerProps) {
+
+  const { workspace } = useWorkspace();
+
+  const workspaceId = workspace?.id;
+
+  const requestContextRef = useRef({ workspaceId, owner, repo, fileName, file });
+  requestContextRef.current = { workspaceId, owner, repo, fileName, file };
+
+  const explainRequestRef = useRef(0);
+  const actionRequestRef = useRef(0);
+  const applyRequestRef = useRef(0);
+  const pullRequestRef = useRef(0);
+
+  function isCurrentContext(request: {
+    workspaceId: string;
+    owner: string;
+    repo: string;
+    fileName: string;
+    file: string | undefined;
+  }) {
+    const current = requestContextRef.current;
+    return (
+      current.workspaceId === request.workspaceId &&
+      current.owner === request.owner &&
+      current.repo === request.repo &&
+      current.fileName === request.fileName &&
+      current.file === request.file
+    );
+  }
+
+  const [explaining, setExplaining] = useState(false);
+
+  const [explanation, setExplanation] = useState("");
+
+  const [explanationError, setExplanationError] = useState("");
+
+  const [codeAction, setCodeAction] = useState<CodeAction | null>(null);
+
+  const [completedAction, setCompletedAction] = useState<CodeAction | null>(null);
+
   const [actionCode, setActionCode] = useState("");
+
   const [actionError, setActionError] = useState("");
 
   const [applying, setApplying] = useState(false);
-  const [applyError, setApplyError] = useState("");
-  const [githubResult, setGithubResult] =
-    useState<GitHubApplyResult | null>(null);
 
-  const [pullRequestLoading, setPullRequestLoading] =
-    useState(false);
-  const [pullRequestResult, setPullRequestResult] =
-    useState<{
-      number: number;
-      title: string;
-      url: string;
-    } | null>(null);
-  const [pullRequestError, setPullRequestError] =
-    useState("");
+  const [applyError, setApplyError] = useState("");
+
+  const [githubResult, setGithubResult] = useState<GitHubApplyResult | null>(null);
+
+  const [pullRequestLoading, setPullRequestLoading] = useState(false);
+
+  const [pullRequestResult, setPullRequestResult] = useState<{
+
+    number: number;
+
+    title: string;
+
+    url: string;
+
+  } | null>(null);
+
+  const [pullRequestError, setPullRequestError] = useState("");
 
   const [editorInstance, setEditorInstance] =
-    useState<editor.IStandaloneCodeEditor | null>(
-      null
-    );
+
+    useState<editor.IStandaloneCodeEditor | null>(null);
 
   const handleEditorMount: OnMount = (editor) => {
+
     setEditorInstance(editor);
+
   };
 
   useEffect(() => {
+
     if (
+
       !editorInstance ||
+
       reviewLine === null ||
+
       reviewLine === undefined
+
     ) {
+
       return;
+
     }
 
-    editorInstance.revealLineInCenter(
-      reviewLine
-    );
+    editorInstance.revealLineInCenter(reviewLine);
 
     editorInstance.setPosition({
+
       lineNumber: reviewLine,
+
       column: 1,
+
     });
 
     editorInstance.focus();
+
   }, [editorInstance, reviewLine]);
 
   useEffect(() => {
-    setCodeAction(null);
-    setCompletedAction(null);
-    setActionCode("");
-    setActionError("");
-    setApplying(false);
-    setApplyError("");
-    setGithubResult(null);
-    setPullRequestResult(null);
-    setPullRequestError("");
-    setExplanation("");
-    setExplanationError("");
-  }, [fileName]);
 
-  
+    setCodeAction(null);
+
+    setCompletedAction(null);
+
+    setActionCode("");
+
+    setActionError("");
+
+    setApplying(false);
+
+    setApplyError("");
+
+    setGithubResult(null);
+
+    setPullRequestResult(null);
+
+    setPullRequestError("");
+
+    setExplanation("");
+
+    setExplanationError("");
+
+    setExplaining(false);
+
+    setPullRequestLoading(false);
+
+  }, [fileName, file, owner, repo, workspaceId]);
+
   useEffect(() => {
+
     function handleReviewFix(event: Event) {
+
       const customEvent =
+
         event as CustomEvent<ReviewFixEventDetail>;
+
       const detail = customEvent.detail;
 
-      if (!detail) return;
+      if (!detail || !workspaceId || detail.workspaceId !== workspaceId || detail.filePath !== fileName) {
+
+  return;
+
+}
 
       setActionError("");
+
       setApplyError("");
+
       setGithubResult(null);
+
       setPullRequestResult(null);
+
       setPullRequestError("");
+
       setCodeAction(null);
+
       setCompletedAction("fix");
+
       setActionCode(detail.modifiedCode);
+
     }
 
     function handleDevPilotLogout() {
+
       setCodeAction(null);
+
       setCompletedAction(null);
+
       setActionCode("");
+
       setActionError("");
+
       setApplyError("");
+
       setGithubResult(null);
+
       setPullRequestResult(null);
+
       setPullRequestError("");
+
     }
 
-    window.addEventListener(
-      "devpilot-review-fix",
-      handleReviewFix
-    );
-    window.addEventListener(
-      "devpilot-logout",
-      handleDevPilotLogout
-    );
+    window.addEventListener("devpilot-review-fix", handleReviewFix);
+
+    window.addEventListener("devpilot-logout", handleDevPilotLogout);
 
     return () => {
-      window.removeEventListener(
-        "devpilot-review-fix",
-        handleReviewFix
-      );
-      window.removeEventListener(
-        "devpilot-logout",
-        handleDevPilotLogout
-      );
-    };
-  }, []);
 
+      window.removeEventListener("devpilot-review-fix", handleReviewFix);
+
+      window.removeEventListener("devpilot-logout", handleDevPilotLogout);
+
+    };
+
+  }, [workspaceId, fileName]);
 
   async function copyCode() {
+
     if (!file) return;
 
     await navigator.clipboard.writeText(file);
+
   }
 
   async function handleExplainCode() {
-    if (!file || !fileName) {
-      return;
-    }
+    if (!file || !fileName || !workspaceId) return;
+
+    const requestId = ++explainRequestRef.current;
+    const context = { workspaceId, owner, repo, fileName, file };
+    const isCurrent = () =>
+      explainRequestRef.current === requestId && isCurrentContext(context);
+
+    setExplaining(true);
+    setExplanationError("");
+    setExplanation("");
 
     try {
-      setExplaining(true);
-      setExplanationError("");
-      setExplanation("");
-
-      const result = await explainCode(
-        owner,
-        repo,
-        fileName,
-        file
-      );
-
+      const result = await explainCode(owner, repo, fileName, file, workspaceId);
+      if (!isCurrent()) return;
       setExplanation(result.response);
     } catch (err) {
+      if (!isCurrent()) return;
       console.error(err);
-      setExplanationError(
-        "Failed to explain this code."
-      );
+      setExplanationError("Failed to explain this code.");
     } finally {
-      setExplaining(false);
+      if (isCurrent()) setExplaining(false);
     }
   }
 
-  async function handleCodeAction(
-    action: CodeAction
-  ) {
-    if (!file || !fileName) {
-      return;
-    }
+  async function handleCodeAction(action: CodeAction) {
+    if (!file || !fileName || !workspaceId) return;
+
+    const requestId = ++actionRequestRef.current;
+    const context = { workspaceId, owner, repo, fileName, file };
+    const isCurrent = () =>
+      actionRequestRef.current === requestId && isCurrentContext(context);
+
+    setCodeAction(action);
+    setCompletedAction(null);
+    setActionError("");
+    setActionCode("");
+    setGithubResult(null);
+    setApplyError("");
+    setPullRequestResult(null);
+    setPullRequestError("");
 
     try {
-      setCodeAction(action);
-      setCompletedAction(null);
-      setActionError("");
-      setActionCode("");
-      setGithubResult(null);
-      setApplyError("");
-      setPullRequestResult(null);
-      setPullRequestError("");
-
       const result = await generateCodeAction(
-        owner,
-        repo,
-        fileName,
-        file,
-        action
+        owner, repo, fileName, file, action, workspaceId
       );
-
+      if (!isCurrent()) return;
       setActionCode(result.modified_code);
       setCompletedAction(action);
       setCodeAction(null);
     } catch (err) {
+      if (!isCurrent()) return;
       console.error(err);
-
-      setActionError(
-        `Failed to ${action} the code.`
-      );
-
+      setActionError(`Failed to ${action} the code.`);
       setCodeAction(null);
     }
   }
 
   async function handleApplyCode() {
-    if (
-      !actionCode ||
-      !fileName ||
-      !completedAction
-    ) {
+    if (!actionCode || !fileName || !completedAction || !workspaceId || applying) {
       return;
     }
 
+    const requestId = ++applyRequestRef.current;
+    const context = { workspaceId, owner, repo, fileName, file };
+    const isCurrent = () =>
+      applyRequestRef.current === requestId && isCurrentContext(context);
+    const submittedCode = actionCode;
+
+    setApplying(true);
+    setApplyError("");
+    setGithubResult(null);
+    setPullRequestResult(null);
+    setPullRequestError("");
+
     try {
-      setApplying(true);
-      setApplyError("");
-      setGithubResult(null);
-      setPullRequestResult(null);
-      setPullRequestError("");
-
+      // Once submitted, a GitHub write may finish even if the user navigates away.
       const result = await applyCodeToGitHub(
-        owner,
-        repo,
-        fileName,
-        actionCode,
-        completedAction
+        owner, repo, fileName, submittedCode, completedAction, workspaceId
       );
+      if (!isCurrent()) return;
 
-      onApplyCode(actionCode);
-
+      onApplyCode(submittedCode);
       setGithubResult({
         branch: result.branch,
         base_branch: result.base_branch,
         commit_sha: result.commit_sha,
         commit_url: result.commit_url,
       });
-
       setActionCode("");
     } catch (err) {
+      if (!isCurrent()) return;
       console.error(err);
-
       setApplyError(
-        err instanceof Error
-          ? err.message
-          : "Failed to apply changes to GitHub."
+        err instanceof Error ? err.message : "Failed to apply changes to GitHub."
       );
     } finally {
-      setApplying(false);
+      if (isCurrent()) setApplying(false);
     }
   }
 
   function handleRejectCode() {
-    if (applying) {
-      return;
-    }
-
+    if (applying) return;
+    ++actionRequestRef.current;
     setActionCode("");
     setCompletedAction(null);
     setActionError("");
@@ -360,461 +502,749 @@ function CodeViewer({
 
   async function handleCreatePullRequest() {
     if (
-      !githubResult ||
-      !completedAction ||
-      !fileName
+      !githubResult || !completedAction || !fileName ||
+      !workspaceId || pullRequestLoading
     ) {
       return;
     }
 
-    try {
-      setPullRequestLoading(true);
-      setPullRequestError("");
-      setPullRequestResult(null);
+    const requestId = ++pullRequestRef.current;
+    const context = { workspaceId, owner, repo, fileName, file };
+    const isCurrent = () =>
+      pullRequestRef.current === requestId && isCurrentContext(context);
 
+    setPullRequestLoading(true);
+    setPullRequestError("");
+    setPullRequestResult(null);
+
+    try {
+      // This request may create a PR even if the user switches workspaces.
       const result = await createPullRequest(
         owner,
         repo,
         `DevPilot: ${completedAction} ${fileName}`,
         `DevPilot generated a ${completedAction} change for \`${fileName}\`.\n\nThe changes were reviewed in DevPilot and committed to the \`${githubResult.branch}\` branch.`,
         githubResult.branch,
-        githubResult.base_branch
+        githubResult.base_branch,
+        workspaceId
       );
-
+      if (!isCurrent()) return;
       setPullRequestResult({
         number: result.number,
         title: result.title,
         url: result.url,
       });
     } catch (err) {
+      if (!isCurrent()) return;
       console.error(err);
-
       setPullRequestError(
-        err instanceof Error
-          ? err.message
-          : "Failed to create Pull Request."
+        err instanceof Error ? err.message : "Failed to create Pull Request."
       );
     } finally {
-      setPullRequestLoading(false);
+      if (isCurrent()) setPullRequestLoading(false);
     }
   }
 
-  const actionButtonsDisabled =
-    codeAction !== null;
+  const actionButtonsDisabled = codeAction !== null;
 
   return (
+
     <div className="min-w-0 space-y-5">
+
       {/* Code Viewer */}
+
       <div className="min-w-0 overflow-hidden rounded-2xl border border-zinc-800/80 bg-zinc-950">
+
         {/* Editor Header */}
+
         <div className="border-b border-zinc-800/80 bg-zinc-900/80">
+
           <div className="flex flex-col gap-4 px-4 py-3 lg:px-5">
+
             {/* File information */}
+
             <div className="flex min-w-0 items-start justify-between gap-3">
+
               <div className="min-w-0">
+
                 <div className="flex min-w-0 items-center gap-2">
+
                   <div className="h-2 w-2 shrink-0 rounded-full bg-emerald-400" />
 
                   <h2
+
                     className="min-w-0 truncate text-sm font-semibold text-zinc-200"
+
                     title={fileName ?? "Code Viewer"}
+
                   >
+
                     {fileName
+
                       ? fileName.split("/").pop()
+
                       : "Code Viewer"}
+
                   </h2>
 
                   {file && (
+
                     <span className="hidden shrink-0 rounded-md border border-zinc-800 bg-zinc-950 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-zinc-600 sm:inline">
+
                       Read only
+
                     </span>
+
                   )}
+
                 </div>
 
                 <div className="mt-1.5 max-w-full overflow-x-auto whitespace-nowrap text-xs text-zinc-600">
+
                   <Breadcrumbs path={fileName ?? ""} />
+
                 </div>
+
               </div>
 
               {file && (
+
                 <button
+
                   type="button"
+
                   onClick={copyCode}
+
                   title="Copy code"
+
                   aria-label="Copy code"
+
                   className="shrink-0 rounded-md border border-zinc-800 bg-zinc-950 p-2 text-zinc-500 transition-colors hover:border-zinc-700 hover:text-zinc-200"
+
                 >
+
                   <Copy className="h-3.5 w-3.5" />
+
                 </button>
+
               )}
+
             </div>
 
             {/* Code actions */}
+
             {file && (
+
               <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+
                 <button
+
                   type="button"
+
                   onClick={handleExplainCode}
-                  disabled={explaining}
+
+                  disabled={explaining || !workspaceId}
+
                   title="Explain this code"
+
                   className="inline-flex items-center gap-2 rounded-md border border-zinc-800 bg-zinc-950 px-2.5 py-2 text-xs font-medium text-zinc-400 transition-colors hover:border-zinc-700 hover:text-zinc-200 disabled:cursor-not-allowed disabled:opacity-50 sm:px-3"
+
                 >
+
                   <BookOpen className="h-3.5 w-3.5" />
+
                   <span>
-                    {explaining
-                      ? "Explaining..."
-                      : "Explain"}
+
+                    {explaining ? "Explaining..." : "Explain"}
+
                   </span>
+
                 </button>
 
                 <button
+
                   type="button"
-                  onClick={() =>
-                    handleCodeAction("fix")
-                  }
-                  disabled={actionButtonsDisabled}
+
+                  onClick={() => handleCodeAction("fix")}
+
+                  disabled={actionButtonsDisabled || !workspaceId}
+
                   title="Fix code"
+
                   className="inline-flex items-center gap-2 rounded-md border border-zinc-800 bg-zinc-950 px-2.5 py-2 text-xs font-medium text-zinc-400 transition-colors hover:border-zinc-700 hover:text-zinc-200 disabled:cursor-not-allowed disabled:opacity-50 sm:px-3"
+
                 >
+
                   <Wrench className="h-3.5 w-3.5" />
+
                   <span>
-                    {codeAction === "fix"
-                      ? "Fixing..."
-                      : "Fix"}
+
+                    {codeAction === "fix" ? "Fixing..." : "Fix"}
+
                   </span>
+
                 </button>
 
                 <button
+
                   type="button"
-                  onClick={() =>
-                    handleCodeAction("improve")
-                  }
-                  disabled={actionButtonsDisabled}
+
+                  onClick={() => handleCodeAction("improve")}
+
+                  disabled={actionButtonsDisabled || !workspaceId}
+
                   title="Improve code"
-                  className="inline-flex items-center gap-2 rounded-md border border-zinc-800 bg-zinc-950 px-2.5 py-2 text-xs font-medium text-zinc-400 transition-colors hover:border-zinc-700 hover:text-zinc-200 sm:px-3"
+
+                  className="inline-flex items-center gap-2 rounded-md border border-zinc-800 bg-zinc-950 px-2.5 py-2 text-xs font-medium text-zinc-400 transition-colors hover:border-zinc-700 hover:text-zinc-200 disabled:cursor-not-allowed disabled:opacity-50 sm:px-3"
+
                 >
+
                   <Sparkles className="h-3.5 w-3.5" />
+
                   <span>
-                    {codeAction === "improve"
-                      ? "Improving..."
-                      : "Improve"}
+
+                    {codeAction === "improve" ? "Improving..." : "Improve"}
+
                   </span>
+
                 </button>
 
                 <button
+
                   type="button"
-                  onClick={() =>
-                    handleCodeAction("refactor")
-                  }
-                  disabled={actionButtonsDisabled}
+
+                  onClick={() => handleCodeAction("refactor")}
+
+                  disabled={actionButtonsDisabled || !workspaceId}
+
                   title="Refactor code"
-                  className="inline-flex items-center gap-2 rounded-md border border-zinc-800 bg-zinc-950 px-2.5 py-2 text-xs font-medium text-zinc-400 transition-colors hover:border-zinc-700 hover:text-zinc-200 sm:px-3"
+
+                  className="inline-flex items-center gap-2 rounded-md border border-zinc-800 bg-zinc-950 px-2.5 py-2 text-xs font-medium text-zinc-400 transition-colors hover:border-zinc-700 hover:text-zinc-200 disabled:cursor-not-allowed disabled:opacity-50 sm:px-3"
+
                 >
+
                   <WandSparkles className="h-3.5 w-3.5" />
+
                   <span>
-                    {codeAction === "refactor"
-                      ? "Refactoring..."
-                      : "Refactor"}
+
+                    {codeAction === "refactor" ? "Refactoring..." : "Refactor"}
+
                   </span>
+
                 </button>
+
               </div>
+
             )}
+
           </div>
+
         </div>
 
         {/* Monaco Editor */}
+
         {file ? (
+
           <div className="min-w-0 overflow-hidden">
+
             <Editor
+
               height="700px"
+
               theme="vs-dark"
+
               language={getLanguage(fileName)}
+
               value={file}
+
               onMount={handleEditorMount}
+
               options={{
+
                 readOnly: true,
-                minimap: {
-                  enabled: false,
-                },
+
+                minimap: { enabled: false },
+
                 fontSize: 14,
+
                 fontLigatures: true,
+
                 scrollBeyondLastLine: false,
+
                 wordWrap: "on",
+
                 automaticLayout: true,
-                padding: {
-                  top: 20,
-                },
+
+                padding: { top: 20 },
+
               }}
+
             />
+
           </div>
+
         ) : (
+
           <div className="flex h-[500px] flex-col items-center justify-center bg-zinc-950 px-6 text-center sm:h-[600px] lg:h-[700px]">
+
             <div className="flex h-12 w-12 items-center justify-center rounded-xl border border-zinc-800 bg-zinc-900">
+
               <BookOpen className="h-5 w-5 text-zinc-600" />
+
             </div>
 
             <p className="mt-4 text-sm font-medium text-zinc-400">
+
               Select a file to view its code
+
             </p>
 
             <p className="mt-1 text-xs text-zinc-600">
+
               Choose a file from the Explorer.
+
             </p>
+
           </div>
+
         )}
+
       </div>
 
       {/* Explanation Loading */}
+
       {explaining && (
+
         <div className="rounded-xl border border-zinc-800/80 bg-zinc-900/60 p-5">
+
           <div className="flex items-center gap-3">
+
             <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-blue-500/10">
+
               <Sparkles className="h-4 w-4 animate-pulse text-blue-400" />
+
             </div>
 
             <div>
+
               <p className="text-sm font-medium text-zinc-200">
+
                 Analyzing code
+
               </p>
 
               <p className="mt-0.5 text-xs text-zinc-500">
+
                 DevPilot is generating an explanation...
+
               </p>
+
             </div>
+
           </div>
+
         </div>
+
       )}
 
       {/* Explanation Error */}
+
       {explanationError && (
+
         <div className="rounded-xl border border-red-900/60 bg-red-950/20 p-4 text-sm text-red-400">
+
           {explanationError}
+
         </div>
+
       )}
 
       {/* Explanation */}
+
       {explanation && (
+
         <div className="rounded-2xl border border-zinc-800/80 bg-zinc-900/60 p-5 sm:p-6">
+
           <div className="mb-6 flex items-start gap-3">
+
             <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-zinc-800 bg-zinc-950">
+
               <Sparkles className="h-4 w-4 text-blue-400" />
+
             </div>
 
             <div>
+
               <h2 className="text-lg font-semibold text-white">
+
                 Code Explanation
+
               </h2>
 
               <p className="mt-0.5 text-xs text-zinc-500">
+
                 AI-generated explanation of the selected file
+
               </p>
+
             </div>
+
           </div>
 
           <div className="prose prose-invert max-w-none overflow-x-auto text-zinc-300">
-            <ReactMarkdown>
-              {explanation}
-            </ReactMarkdown>
+
+            <ReactMarkdown>{explanation}</ReactMarkdown>
+
           </div>
+
         </div>
+
       )}
 
       {/* Code Action Error */}
+
       {actionError && (
+
         <div className="rounded-xl border border-red-900/60 bg-red-950/20 p-4 text-sm text-red-400">
+
           {actionError}
+
         </div>
+
       )}
 
       {/* Apply Error */}
+
       {applyError && (
+
         <div className="rounded-xl border border-red-900/60 bg-red-950/20 p-4 text-sm text-red-400">
+
           {applyError}
+
         </div>
+
       )}
 
       {/* GitHub Success */}
+
       {githubResult && (
+
         <div className="rounded-2xl border border-emerald-900/50 bg-emerald-950/10 p-5 sm:p-6">
+
           <div className="flex items-start gap-3">
+
             <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-emerald-500/10">
+
               <Check className="h-4 w-4 text-emerald-400" />
+
             </div>
 
             <div className="min-w-0">
+
               <h2 className="text-base font-semibold text-white">
+
                 Changes committed to GitHub
+
               </h2>
 
               <p className="mt-2 text-sm text-zinc-500">
+
                 Branch:
+
                 <span className="ml-2 break-all font-mono text-zinc-300">
+
                   {githubResult.branch}
+
                 </span>
+
               </p>
 
               <p className="mt-1 text-sm text-zinc-500">
+
                 Base:
+
                 <span className="ml-2 break-all font-mono text-zinc-300">
+
                   {githubResult.base_branch}
+
                 </span>
+
               </p>
 
               {githubResult.commit_url && (
+
                 <a
+
                   href={githubResult.commit_url}
+
                   target="_blank"
+
                   rel="noreferrer"
+
                   className="mt-3 inline-flex items-center gap-1.5 text-sm text-blue-400 hover:text-blue-300"
+
                 >
+
                   View commit on GitHub
+
                   <ExternalLink className="h-3.5 w-3.5" />
+
                 </a>
+
               )}
 
               {!pullRequestResult && (
+
                 <div className="mt-5">
+
                   <button
+
                     type="button"
-                    onClick={
-                      handleCreatePullRequest
-                    }
-                    disabled={pullRequestLoading}
+
+                    onClick={handleCreatePullRequest}
+
+                    disabled={pullRequestLoading || !workspaceId}
+
                     className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-zinc-100 px-4 py-2 text-sm font-medium text-zinc-900 transition-colors hover:bg-white disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto"
+
                   >
+
                     {pullRequestLoading ? (
+
                       <>
+
                         <RefreshCw className="h-4 w-4 animate-spin" />
+
                         Creating Pull Request...
+
                       </>
+
                     ) : (
+
                       <>
+
                         <Sparkles className="h-4 w-4" />
+
                         Create Pull Request
+
                       </>
+
                     )}
+
                   </button>
+
                 </div>
+
               )}
 
               {pullRequestError && (
+
                 <div className="mt-4 rounded-lg border border-red-900/60 bg-red-950/20 p-3 text-sm text-red-400">
+
                   {pullRequestError}
+
                 </div>
+
               )}
 
               {pullRequestResult && (
+
                 <div className="mt-5 rounded-xl border border-zinc-800 bg-zinc-950 p-4">
+
                   <div className="flex items-start gap-3">
+
                     <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-emerald-500/10">
+
                       <Check className="h-4 w-4 text-emerald-400" />
+
                     </div>
 
                     <div className="min-w-0">
+
                       <h3 className="text-sm font-semibold text-white">
+
                         Pull Request created
+
                       </h3>
 
                       <p className="mt-1 text-sm text-zinc-500">
+
                         PR #{pullRequestResult.number}
+
                       </p>
 
                       <a
+
                         href={pullRequestResult.url}
+
                         target="_blank"
+
                         rel="noreferrer"
+
                         className="mt-3 inline-flex items-center gap-1.5 text-sm text-blue-400 hover:text-blue-300"
+
                       >
+
                         View Pull Request on GitHub
+
                         <ExternalLink className="h-3.5 w-3.5" />
+
                       </a>
+
                     </div>
+
                   </div>
+
                 </div>
+
               )}
+
             </div>
+
           </div>
+
         </div>
+
       )}
 
       {/* Proposed Changes */}
+
       {actionCode && (
+
         <div className="min-w-0 overflow-hidden rounded-2xl border border-zinc-800/80 bg-zinc-950">
+
           <div className="flex flex-col gap-4 border-b border-zinc-800/80 bg-zinc-900/80 px-4 py-4 sm:flex-row sm:items-center sm:justify-between">
+
             <div className="min-w-0">
+
               <div className="flex items-center gap-2">
+
                 <Wrench className="h-4 w-4 shrink-0 text-blue-400" />
 
                 <h2 className="text-sm font-semibold text-white">
+
                   Proposed Changes
+
                 </h2>
+
               </div>
 
               <p className="mt-1 text-xs text-zinc-500">
+
                 DevPilot generated a proposed{" "}
+
                 {completedAction} version of this code.
+
               </p>
+
             </div>
 
             <div className="flex flex-col gap-2 sm:flex-row">
+
               <button
+
                 type="button"
+
                 onClick={handleRejectCode}
+
                 disabled={applying}
+
                 className="rounded-lg border border-zinc-800 bg-zinc-950 px-4 py-2 text-sm text-zinc-400 transition-colors hover:border-zinc-700 hover:text-zinc-200 disabled:cursor-not-allowed disabled:opacity-50"
+
               >
+
                 Reject
+
               </button>
 
               <button
+
                 type="button"
+
                 onClick={handleApplyCode}
-                disabled={applying}
+
+                disabled={applying || !workspaceId}
+
                 className="inline-flex items-center justify-center gap-2 rounded-lg bg-zinc-100 px-4 py-2 text-sm font-medium text-zinc-900 transition-colors hover:bg-white disabled:cursor-not-allowed disabled:opacity-50"
+
               >
+
                 {applying ? (
+
                   <>
+
                     <RefreshCw className="h-4 w-4 animate-spin" />
+
                     Applying...
+
                   </>
+
                 ) : (
+
                   <>
+
                     <Check className="h-4 w-4" />
+
                     Apply to GitHub
+
                   </>
+
                 )}
+
               </button>
+
             </div>
+
           </div>
 
           <div className="min-w-0 overflow-hidden">
+
             <DiffEditor
+
               height="700px"
+
               theme="vs-dark"
+
               language={getLanguage(fileName)}
+
               original={file ?? ""}
+
               modified={actionCode}
+
               options={{
+
                 readOnly: true,
-                minimap: {
-                  enabled: false,
-                },
+
+                minimap: { enabled: false },
+
                 fontSize: 14,
+
                 fontLigatures: true,
+
                 scrollBeyondLastLine: false,
+
                 wordWrap: "on",
+
                 automaticLayout: true,
+
                 renderSideBySide: true,
-                padding: {
-                  top: 20,
-                },
+
+                padding: { top: 20 },
+
               }}
+
             />
+
           </div>
+
         </div>
+
       )}
+
     </div>
+
   );
+
 }
 
 export default CodeViewer;

@@ -1,4 +1,3 @@
-
 import { useEffect, useRef, useState } from "react";
 import {
   Bot,
@@ -13,7 +12,6 @@ import {
 } from "lucide-react";
 
 import ChatMessage from "./ChatMessage";
-
 import {
   chatWithAI,
   createConversation,
@@ -25,6 +23,7 @@ import {
 interface AIChatPanelProps {
   owner: string;
   repo: string;
+  workspaceId: string | null;
   onSelectFile: (path: string) => void;
 }
 
@@ -65,21 +64,16 @@ const QUICK_ACTIONS = [
 function AIChatPanel({
   owner,
   repo,
+  workspaceId,
   onSelectFile,
 }: AIChatPanelProps) {
   const [messages, setMessages] = useState<Message[]>([]);
-
   const [conversations, setConversations] = useState<Conversation[]>([]);
-
-  const [activeConversationId, setActiveConversationId] = useState<
-    string | null
-  >(null);
-
+  const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [initializing, setInitializing] = useState(true);
   const [conversationError, setConversationError] = useState("");
-
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const greeting: Message = {
@@ -87,7 +81,7 @@ function AIChatPanel({
     content: "Hi! I'm DevPilot AI. Ask me anything about this repository.",
   };
 
-  // Load conversations whenever the repository changes.
+  // Load conversations whenever the repository or workspace changes.
   useEffect(() => {
     let cancelled = false;
 
@@ -97,26 +91,31 @@ function AIChatPanel({
       setActiveConversationId(null);
       setMessages([]);
 
-      try {
-        const savedConversations = await getConversations(owner, repo);
+      if (!workspaceId) {
+        setConversations([]);
+        setMessages([greeting]);
+        setInitializing(false);
+        return;
+      }
 
+      try {
+        const savedConversations = await getConversations(owner, repo, workspaceId);
         if (cancelled) return;
 
         setConversations(savedConversations);
 
         if (savedConversations.length > 0) {
           const latestConversation = savedConversations[0];
-
           const savedMessages = await getConversationMessages(
             latestConversation.id,
             owner,
-            repo
+            repo,
+            workspaceId
           );
 
           if (cancelled) return;
 
           setActiveConversationId(latestConversation.id);
-
           setMessages(
             savedMessages.length > 0
               ? savedMessages.map((message) => ({
@@ -131,68 +130,58 @@ function AIChatPanel({
         }
       } catch (error) {
         console.error("Failed to initialize chat:", error);
-
         if (!cancelled) {
-          setConversationError(
-            "Unable to load conversation history."
-          );
+          setConversationError("Unable to load conversation history.");
           setMessages([greeting]);
+          setConversations([]);
         }
       } finally {
-        if (!cancelled) {
-          setInitializing(false);
-        }
+        if (!cancelled) setInitializing(false);
       }
     }
 
-    initializeChat();
-
+    void initializeChat();
     return () => {
       cancelled = true;
     };
-  }, [owner, repo]);
+  }, [owner, repo, workspaceId]);
 
   // Automatically scroll to the latest message.
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({
-      behavior: "smooth",
-    });
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, loading]);
 
-  // Create a new conversation.
+  // Create a new conversation in the selected workspace.
   async function startNewConversation() {
     if (loading || initializing) return;
+    if (!workspaceId) {
+      setConversationError("Please select a workspace first.");
+      return;
+    }
 
     setInitializing(true);
     setConversationError("");
 
     try {
-      const conversation = await createConversation(owner, repo);
-
-      setConversations((previous) => [
-        conversation,
-        ...previous,
-      ]);
-
+      const conversation = await createConversation(owner, repo, workspaceId);
+      setConversations((previous) => [conversation, ...previous]);
       setActiveConversationId(conversation.id);
       setMessages([greeting]);
       setInput("");
     } catch (error) {
       console.error("Failed to create conversation:", error);
-
-      setConversationError(
-        "Unable to create a new conversation."
-      );
+      setConversationError("Unable to create a new conversation.");
     } finally {
       setInitializing(false);
     }
   }
 
-  // Switch to an existing conversation.
+  // Switch to an existing conversation in this workspace.
   async function switchConversation(conversationId: string) {
     if (
       loading ||
       initializing ||
+      !workspaceId ||
       conversationId === activeConversationId
     ) {
       return;
@@ -205,11 +194,11 @@ function AIChatPanel({
       const savedMessages = await getConversationMessages(
         conversationId,
         owner,
-        repo
+        repo,
+        workspaceId
       );
 
       setActiveConversationId(conversationId);
-
       setMessages(
         savedMessages.length > 0
           ? savedMessages.map((message) => ({
@@ -219,14 +208,10 @@ function AIChatPanel({
             }))
           : [greeting]
       );
-
       setInput("");
     } catch (error) {
       console.error("Failed to restore conversation:", error);
-
-      setConversationError(
-        "Unable to open this conversation."
-      );
+      setConversationError("Unable to open this conversation.");
     } finally {
       setInitializing(false);
     }
@@ -236,11 +221,9 @@ function AIChatPanel({
   async function sendMessage(customPrompt?: string) {
     const prompt = customPrompt ?? input;
 
-    if (
-      !prompt.trim() ||
-      loading ||
-      initializing
-    ) {
+    if (!prompt.trim() || loading || initializing) return;
+    if (!workspaceId) {
+      setConversationError("Please select a workspace first.");
       return;
     }
 
@@ -256,12 +239,8 @@ function AIChatPanel({
 
     setMessages((previous) => [
       ...previous,
-      {
-        role: "user",
-        content: prompt,
-      },
+      { role: "user", content: prompt },
     ]);
-
     setInput("");
 
     try {
@@ -269,16 +248,10 @@ function AIChatPanel({
 
       // Automatically create a conversation for the first message.
       if (!conversationId) {
-        const conversation = await createConversation(owner, repo);
-
+        const conversation = await createConversation(owner, repo, workspaceId);
         conversationId = conversation.id;
-
         setActiveConversationId(conversationId);
-
-        setConversations((previous) => [
-          conversation,
-          ...previous,
-        ]);
+        setConversations((previous) => [conversation, ...previous]);
       }
 
       const result = await chatWithAI(
@@ -286,7 +259,8 @@ function AIChatPanel({
         repo,
         prompt,
         previousHistory,
-        conversationId
+        conversationId,
+        workspaceId
       );
 
       setMessages((previous) => [
@@ -299,15 +273,10 @@ function AIChatPanel({
       ]);
 
       // Refresh metadata so the latest conversation appears first.
-      const updatedConversations = await getConversations(
-        owner,
-        repo
-      );
-
+      const updatedConversations = await getConversations(owner, repo, workspaceId);
       setConversations(updatedConversations);
     } catch (error) {
       console.error("Chat request failed:", error);
-
       setMessages((previous) => [
         ...previous,
         {
@@ -324,70 +293,54 @@ function AIChatPanel({
   }
 
   function formatTimestamp(timestamp: number) {
-    return new Date(timestamp * 1000).toLocaleString(
-      undefined,
-      {
-        day: "numeric",
-        month: "short",
-        hour: "2-digit",
-        minute: "2-digit",
-      }
-    );
+    return new Date(timestamp * 1000).toLocaleString(undefined, {
+      day: "numeric",
+      month: "short",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
   }
 
   return (
     <div className="flex min-w-0 h-[600px] flex-col overflow-hidden rounded-2xl border border-zinc-800/80 bg-zinc-950 sm:h-[650px] lg:h-[700px]">
-
       {/* Header */}
       <div className="shrink-0 border-b border-zinc-800/80 bg-zinc-900/80 px-4 py-3.5">
-
         <div className="flex items-center justify-between gap-3">
-
           <div className="flex min-w-0 items-center gap-3">
             <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-blue-500/20 bg-blue-500/10">
               <Bot className="h-4 w-4 text-blue-400" />
             </div>
-
             <div className="min-w-0">
               <div className="flex items-center gap-2">
                 <h2 className="truncate text-sm font-semibold text-zinc-200">
                   DevPilot AI
                 </h2>
-
                 <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-400" />
               </div>
-
               <p className="mt-0.5 truncate text-xs text-zinc-600">
                 Repo-aware codebase assistant
               </p>
             </div>
           </div>
-
           <button
             type="button"
             onClick={startNewConversation}
-            disabled={loading || initializing}
+            disabled={loading || initializing || !workspaceId}
             className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 text-xs font-medium text-zinc-300 transition-colors hover:border-blue-500/50 hover:text-blue-400 disabled:opacity-40"
           >
             <Plus className="h-3.5 w-3.5" />
             New Chat
           </button>
-
         </div>
 
         {/* Conversation selector */}
         <div className="mt-3 flex items-center gap-2">
           <MessageSquare className="h-3.5 w-3.5 shrink-0 text-zinc-500" />
-
           <select
             value={activeConversationId ?? ""}
-            onChange={(event) =>
-              switchConversation(event.target.value)
-            }
+            onChange={(event) => void switchConversation(event.target.value)}
             disabled={
-              loading ||
-              initializing ||
-              conversations.length === 0
+              loading || initializing || conversations.length === 0 || !workspaceId
             }
             className="min-w-0 flex-1 rounded-md border border-zinc-800 bg-zinc-950 px-2 py-1.5 text-xs text-zinc-400 outline-none focus:border-blue-500/50 disabled:opacity-50"
           >
@@ -396,19 +349,13 @@ function AIChatPanel({
                 ? "No saved conversations"
                 : "Select a conversation"}
             </option>
-
             {conversations.map((conversation) => (
-              <option
-                key={conversation.id}
-                value={conversation.id}
-              >
-                {conversation.title} ·{" "}
-                {formatTimestamp(conversation.updated_at)}
+              <option key={conversation.id} value={conversation.id}>
+                {conversation.title} · {formatTimestamp(conversation.updated_at)}
               </option>
             ))}
           </select>
         </div>
-
       </div>
 
       {/* Conversation error */}
@@ -420,7 +367,6 @@ function AIChatPanel({
 
       {/* Messages */}
       <div className="min-h-0 flex-1 space-y-4 overflow-x-hidden overflow-y-auto p-3 sm:p-4">
-
         {initializing ? (
           <div className="flex h-full items-center justify-center text-xs text-zinc-500">
             Loading conversation history...
@@ -441,42 +387,35 @@ function AIChatPanel({
               <div className="flex items-center gap-2 px-1 py-2 text-xs text-zinc-500">
                 <div className="flex items-center gap-1">
                   <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-blue-400" />
-
                   <span
                     className="h-1.5 w-1.5 animate-pulse rounded-full bg-blue-400"
                     style={{ animationDelay: "120ms" }}
                   />
-
                   <span
                     className="h-1.5 w-1.5 animate-pulse rounded-full bg-blue-400"
                     style={{ animationDelay: "240ms" }}
                   />
                 </div>
-
                 <span>DevPilot is thinking...</span>
               </div>
             )}
-
             <div ref={messagesEndRef} />
           </>
         )}
-
       </div>
 
       {/* Composer */}
       <div className="shrink-0 border-t border-zinc-800/80 bg-zinc-900/60 p-3">
-
         {/* Quick Actions */}
         <div className="mb-3 flex gap-1.5 overflow-x-auto pb-1">
           {QUICK_ACTIONS.map((action) => {
             const Icon = action.icon;
-
             return (
               <button
                 key={action.label}
                 type="button"
-                onClick={() => sendMessage(action.prompt)}
-                disabled={loading || initializing}
+                onClick={() => void sendMessage(action.prompt)}
+                disabled={loading || initializing || !workspaceId}
                 className="inline-flex shrink-0 items-center gap-1.5 rounded-md border border-zinc-800 bg-zinc-950 px-2.5 py-1.5 text-[11px] font-medium text-zinc-500 transition-colors hover:border-zinc-700 hover:text-zinc-300 disabled:pointer-events-none disabled:opacity-40"
               >
                 <Icon className="h-3 w-3" />
@@ -488,7 +427,6 @@ function AIChatPanel({
 
         {/* Input */}
         <div className="flex min-w-0 items-end gap-2 rounded-xl border border-zinc-800 bg-zinc-950 p-2 transition-colors focus-within:border-zinc-700">
-
           <textarea
             value={input}
             onChange={(event) => setInput(event.target.value)}
@@ -500,35 +438,27 @@ function AIChatPanel({
                 !initializing
               ) {
                 event.preventDefault();
-                sendMessage();
+                void sendMessage();
               }
             }}
             placeholder="Ask about this repository..."
-            disabled={loading || initializing}
+            disabled={loading || initializing || !workspaceId}
             rows={1}
             className="max-h-24 min-h-[40px] min-w-0 flex-1 resize-none bg-transparent px-2 py-2 text-sm text-zinc-200 outline-none placeholder:text-zinc-600 disabled:opacity-50"
           />
-
           <button
             type="button"
-            onClick={() => sendMessage()}
-            disabled={
-              loading ||
-              initializing ||
-              !input.trim()
-            }
+            onClick={() => void sendMessage()}
+            disabled={loading || initializing || !input.trim() || !workspaceId}
             aria-label="Send message"
             className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-blue-600 text-white transition-colors hover:bg-blue-500 disabled:pointer-events-none disabled:opacity-40"
           >
             <Send className="h-4 w-4" />
           </button>
-
         </div>
-
         <p className="mt-2 px-1 text-[10px] text-zinc-700">
           Enter to send · Shift + Enter for a new line
         </p>
-
       </div>
     </div>
   );

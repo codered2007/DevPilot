@@ -104,3 +104,172 @@ def test_blank_workspace_name_is_rejected(monkeypatch):
         assert response.status_code == 422
     finally:
         app.dependency_overrides.pop(get_current_session, None)
+def test_workspace_state_requires_authentication():
+    response = client.get("/workspaces/workspace-123/state")
+    assert response.status_code == 401
+
+    response = client.put(
+        "/workspaces/workspace-123/state/active_view",
+        json={"state_value": {"tab": "summary"}},
+    )
+    assert response.status_code == 401
+
+    response = client.delete(
+        "/workspaces/workspace-123/state/active_view"
+    )
+    assert response.status_code == 401
+
+
+def test_user_can_save_and_retrieve_workspace_state(monkeypatch, tmp_path):
+    from app import database
+
+    monkeypatch.setattr(
+        database,
+        "DATABASE_PATH",
+        tmp_path / "workspace_state_api.db",
+    )
+
+    database.initialize_database()
+    database.upsert_user({"id": 101, "login": "alice"})
+    database.create_workspace("alice-workspace", 101, "Alice's workspace")
+
+    app.dependency_overrides[get_current_session] = lambda: {
+        "github_user": {"id": 101, "login": "alice"},
+        "access_token": "test-token",
+    }
+
+    try:
+        saved = client.put(
+            "/workspaces/alice-workspace/state/active_view",
+            json={"state_value": {"tab": "security"}},
+        )
+
+        assert saved.status_code == 200
+        assert saved.json()["state_value"] == {"tab": "security"}
+
+        retrieved = client.get(
+            "/workspaces/alice-workspace/state"
+        )
+
+        assert retrieved.status_code == 200
+        assert retrieved.json()["state"] == {
+            "active_view": {"tab": "security"}
+        }
+    finally:
+        app.dependency_overrides.pop(get_current_session, None)
+
+
+def test_user_cannot_access_another_users_workspace_state(
+    monkeypatch, tmp_path
+):
+    from app import database
+
+    monkeypatch.setattr(
+        database,
+        "DATABASE_PATH",
+        tmp_path / "workspace_state_isolation.db",
+    )
+
+    database.initialize_database()
+    database.upsert_user({"id": 101, "login": "alice"})
+    database.upsert_user({"id": 202, "login": "bob"})
+    database.create_workspace("bob-workspace", 202, "Bob's workspace")
+
+    database.set_workspace_state(
+        "bob-workspace",
+        202,
+        "active_view",
+        {"tab": "private"},
+    )
+
+    app.dependency_overrides[get_current_session] = lambda: {
+        "github_user": {"id": 101, "login": "alice"},
+        "access_token": "test-token",
+    }
+
+    try:
+        response = client.get(
+            "/workspaces/bob-workspace/state"
+        )
+
+        assert response.status_code == 404
+
+        response = client.put(
+            "/workspaces/bob-workspace/state/active_view",
+            json={"state_value": {"tab": "hacked"}},
+        )
+
+        assert response.status_code == 404
+
+        assert database.get_workspace_state(
+            "bob-workspace", 202
+        ) == {"active_view": {"tab": "private"}}
+    finally:
+        app.dependency_overrides.pop(get_current_session, None)
+
+
+def test_user_can_delete_workspace_state(monkeypatch, tmp_path):
+    from app import database
+
+    monkeypatch.setattr(
+        database,
+        "DATABASE_PATH",
+        tmp_path / "workspace_state_delete.db",
+    )
+
+    database.initialize_database()
+    database.upsert_user({"id": 101, "login": "alice"})
+    database.create_workspace("alice-workspace", 101, "Alice's workspace")
+
+    database.set_workspace_state(
+        "alice-workspace",
+        101,
+        "active_view",
+        {"tab": "summary"},
+    )
+
+    app.dependency_overrides[get_current_session] = lambda: {
+        "github_user": {"id": 101, "login": "alice"},
+        "access_token": "test-token",
+    }
+
+    try:
+        response = client.delete(
+            "/workspaces/alice-workspace/state/active_view"
+        )
+
+        assert response.status_code == 200
+        assert database.get_workspace_state(
+            "alice-workspace", 101
+        ) == {}
+    finally:
+        app.dependency_overrides.pop(get_current_session, None)
+
+
+def test_workspace_state_rejects_invalid_payload(monkeypatch, tmp_path):
+    from app import database
+
+    monkeypatch.setattr(
+        database,
+        "DATABASE_PATH",
+        tmp_path / "workspace_state_invalid.db",
+    )
+
+    database.initialize_database()
+    database.upsert_user({"id": 101, "login": "alice"})
+    database.create_workspace("alice-workspace", 101, "Alice's workspace")
+
+    app.dependency_overrides[get_current_session] = lambda: {
+        "github_user": {"id": 101, "login": "alice"},
+        "access_token": "test-token",
+    }
+
+    try:
+        response = client.put(
+            "/workspaces/alice-workspace/state/active_view",
+            json={"state_value": ["invalid"]},
+        )
+
+        assert response.status_code == 422
+    finally:
+        app.dependency_overrides.pop(get_current_session, None)

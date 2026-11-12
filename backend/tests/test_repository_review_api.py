@@ -1,4 +1,4 @@
-
+﻿
 import pytest
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
@@ -24,6 +24,12 @@ def review_api_client(tmp_path, monkeypatch):
         "login": "test-user",
         "name": "Test User",
     })
+
+    database.create_workspace(
+        "test-workspace-1001",
+        1001,
+        "Test Workspace",
+    )
 
     app.dependency_overrides[get_current_session] = lambda: {
         "access_token": "test-token",
@@ -62,7 +68,8 @@ def test_repository_review_creates_successful_activity(
 
     response = review_api_client.post(
         "/repository-review/",
-        params={"owner": "test-owner", "repo": "test-repo"},
+        params={"owner": "test-owner", "repo": "test-repo",
+        "workspace_id": "test-workspace-1001", "workspace_id": "test-workspace-1001"},
     )
 
     assert response.status_code == 200
@@ -70,6 +77,7 @@ def test_repository_review_creates_successful_activity(
 
     activities = database.list_activities(
         user_id=1001,
+        workspace_id="test-workspace-1001",
         owner="test-owner",
         repo="test-repo",
     )
@@ -102,13 +110,15 @@ def test_repository_review_records_failed_activity(
 
     response = review_api_client.post(
         "/repository-review/",
-        params={"owner": "test-owner", "repo": "test-repo"},
+        params={"owner": "test-owner", "repo": "test-repo",
+        "workspace_id": "test-workspace-1001", "workspace_id": "test-workspace-1001"},
     )
 
-    assert response.status_code == 500
+    assert response.status_code == 502
 
     activities = database.list_activities(
         user_id=1001,
+        workspace_id="test-workspace-1001",
         owner="test-owner",
         repo="test-repo",
     )
@@ -141,12 +151,13 @@ def test_repository_review_empty_result_records_failure(
 
     response = review_api_client.post(
         "/repository-review/",
-        params={"owner": "test-owner", "repo": "test-repo"},
+        params={"owner": "test-owner", "repo": "test-repo",
+        "workspace_id": "test-workspace-1001", "workspace_id": "test-workspace-1001"},
     )
 
-    assert response.status_code == 400
+    assert response.status_code == 502
 
-    activities = database.list_activities(user_id=1001)
+    activities = database.list_activities(user_id=1001, workspace_id="test-workspace-1001")
 
     assert len(activities) == 1
     assert activities[0]["status"] == "failed"
@@ -171,8 +182,10 @@ def test_repository_review_access_denial_creates_no_activity(
 
     response = review_api_client.post(
         "/repository-review/",
-        params={"owner": "test-owner", "repo": "test-repo"},
+        params={"owner": "test-owner", "repo": "test-repo",
+        "workspace_id": "test-workspace-1001", "workspace_id": "test-workspace-1001"},
     )
 
     assert response.status_code == 403
-    assert database.list_activities(user_id=1001) == []
+    assert database.list_activities(user_id=1001, workspace_id="test-workspace-1001") == []
+

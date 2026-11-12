@@ -5,6 +5,9 @@ import {
 } from "lucide-react";
 import { FaGithub } from "react-icons/fa";
 import { useEffect, useState } from "react";
+import SavedResults from "./SavedResults";
+import UserPreferences from "./UserPreferences";
+import WorkspaceManagement from "./WorkspaceManagement";
 
 interface GithubUser {
   id: number;
@@ -153,6 +156,10 @@ function Settings() {
       </section>
 
       {/* GitHub Integration */}
+      {/* User Preferences */}
+      <UserPreferences />
+      {/* Workspace Management */}
+      <WorkspaceManagement />
       <section className="overflow-hidden rounded-xl border border-zinc-800 bg-[#111418]">
         <div className="border-b border-zinc-800 px-4 py-4 sm:px-6 sm:py-5">
           <div className="flex items-center gap-3">
@@ -208,6 +215,9 @@ function Settings() {
           </div>
         </div>
       </section>
+
+      {/* Saved Results */}
+      <SavedResults />
 
       {/* About */}
       <section className="overflow-hidden rounded-xl border border-zinc-800 bg-[#111418]">

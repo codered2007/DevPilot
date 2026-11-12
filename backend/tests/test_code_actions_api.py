@@ -1,4 +1,4 @@
-
+﻿
 import pytest
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
@@ -25,6 +25,12 @@ def code_actions_api_client(tmp_path, monkeypatch):
         "name": "Test User",
     })
 
+    database.create_workspace(
+        "test-workspace-1001",
+        1001,
+        "Test Workspace",
+    )
+
     app.dependency_overrides[get_current_session] = lambda: {
         "access_token": "test-token",
         "github_user": {
@@ -43,6 +49,7 @@ def code_action_payload():
     return {
         "owner": "test-owner",
         "repo": "test-repo",
+        "workspace_id": "test-workspace-1001",
         "file_path": "src/main.py",
         "code": "def hello():\n    print('Hello')",
         "action": "fix",
@@ -72,6 +79,7 @@ def test_code_suggestion_creates_successful_activity(
 
     response = code_actions_api_client.post(
         "/code-actions/",
+        params={"workspace_id": "test-workspace-1001"},
         json=code_action_payload(),
     )
 
@@ -83,6 +91,7 @@ def test_code_suggestion_creates_successful_activity(
 
     activities = database.list_activities(
         user_id=1001,
+        workspace_id="test-workspace-1001",
         owner="test-owner",
         repo="test-repo",
     )
@@ -117,12 +126,13 @@ def test_code_suggestion_records_failed_activity(
 
     response = code_actions_api_client.post(
         "/code-actions/",
+        params={"workspace_id": "test-workspace-1001"},
         json=code_action_payload(),
     )
 
     assert response.status_code == 500
 
-    activities = database.list_activities(user_id=1001)
+    activities = database.list_activities(user_id=1001, workspace_id="test-workspace-1001")
 
     assert len(activities) == 1
     assert activities[0]["action_type"] == "code_suggestion"
@@ -153,12 +163,13 @@ def test_code_suggestion_empty_result_records_failure(
 
     response = code_actions_api_client.post(
         "/code-actions/",
+        params={"workspace_id": "test-workspace-1001"},
         json=code_action_payload(),
     )
 
     assert response.status_code == 400
 
-    activities = database.list_activities(user_id=1001)
+    activities = database.list_activities(user_id=1001, workspace_id="test-workspace-1001")
 
     assert len(activities) == 1
     assert activities[0]["action_type"] == "code_suggestion"
@@ -184,8 +195,11 @@ def test_code_suggestion_access_denial_creates_no_activity(
 
     response = code_actions_api_client.post(
         "/code-actions/",
+        params={"workspace_id": "test-workspace-1001"},
         json=code_action_payload(),
     )
 
     assert response.status_code == 403
-    assert database.list_activities(user_id=1001) == []
+    assert database.list_activities(user_id=1001, workspace_id="test-workspace-1001") == []
+
+

@@ -23,6 +23,11 @@ def apply_code_api_client(tmp_path, monkeypatch):
         "login": "test-user",
         "name": "Test User",
     })
+    database.create_workspace(
+    "test-workspace-1001",
+    1001,
+    "Test Workspace",
+)
 
     app.dependency_overrides[get_current_session] = lambda: {
         "access_token": "test-token",
@@ -102,18 +107,20 @@ def test_apply_code_creates_successful_activity(
     )
 
     response = apply_code_api_client.post(
-        "/apply-code/",
-        json=apply_code_payload,
-    )
+    "/apply-code/",
+    params={"workspace_id": "test-workspace-1001"},
+    json=apply_code_payload,
+)
 
     assert response.status_code == 200
     assert response.json()["commit_sha"] == "commit-sha"
 
     activities = database.list_activities(
-        user_id=1001,
-        owner="test-owner",
-        repo="test-repo",
-    )
+    user_id=1001,
+    workspace_id="test-workspace-1001",
+    owner="test-owner",
+    repo="test-repo",
+)
 
     assert len(activities) == 1
 
@@ -152,17 +159,19 @@ def test_apply_code_records_failed_activity(
     )
 
     response = apply_code_api_client.post(
-        "/apply-code/",
-        json=apply_code_payload,
-    )
+    "/apply-code/",
+    params={"workspace_id": "test-workspace-1001"},
+    json=apply_code_payload,
+)
 
     assert response.status_code == 500
 
     activities = database.list_activities(
-        user_id=1001,
-        owner="test-owner",
-        repo="test-repo",
-    )
+    user_id=1001,
+    workspace_id="test-workspace-1001",
+    owner="test-owner",
+    repo="test-repo",
+)
 
     assert len(activities) == 1
     assert activities[0]["action_type"] == "apply_code"
@@ -193,17 +202,19 @@ def test_apply_code_empty_result_records_failure(
     )
 
     response = apply_code_api_client.post(
-        "/apply-code/",
-        json=apply_code_payload,
-    )
+    "/apply-code/",
+    params={"workspace_id": "test-workspace-1001"},
+    json=apply_code_payload,
+)
 
     assert response.status_code == 404
 
     activities = database.list_activities(
-        user_id=1001,
-        owner="test-owner",
-        repo="test-repo",
-    )
+    user_id=1001,
+    workspace_id="test-workspace-1001",
+    owner="test-owner",
+    repo="test-repo",
+)
 
     assert len(activities) == 1
     assert activities[0]["status"] == "failed"
@@ -228,12 +239,16 @@ def test_apply_code_access_denial_creates_no_activity(
     )
 
     response = apply_code_api_client.post(
-        "/apply-code/",
-        json=apply_code_payload,
-    )
+    "/apply-code/",
+    params={"workspace_id": "test-workspace-1001"},
+    json=apply_code_payload,
+)
 
     assert response.status_code == 403
 
-    activities = database.list_activities(user_id=1001)
+    activities = database.list_activities(
+    user_id=1001,
+    workspace_id="test-workspace-1001",
+)
 
     assert activities == []

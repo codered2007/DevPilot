@@ -1,4 +1,4 @@
-
+import { useWorkspace } from "../../context/useWorkspace";
 import { useEffect, useState } from "react";
 import {
   ArrowUpRight,
@@ -12,11 +12,9 @@ import { useNavigate } from "react-router-dom";
 
 import EmptyState from "../../components/dashboard/EmptyState";
 import RecentActivity from "../../components/dashboard/RecentActivity";
-import RepositoryCard from "../../components/repository/RepositoryCard";
 import RepositoryImport from "../../components/repository/RepositoryImport";
 
 import {
-  getRepositoryTree,
   getRepositoryHistory,
   importRepository,
   recordRepositoryOpen,
@@ -36,8 +34,7 @@ interface GithubUser {
 function Dashboard() {
   const [user, setUser] = useState<GithubUser | null>(null);
 
-  const [fileCount, setFileCount] = useState(0);
-  const [loadingFiles, setLoadingFiles] = useState(false);
+
 
   const [history, setHistory] = useState<RepositoryHistoryItem[]>([]);
   const [loadingHistory, setLoadingHistory] = useState(true);
@@ -49,7 +46,9 @@ function Dashboard() {
     null
   );
 
-  const { repository, setRepository } = useRepository();
+  const { setRepository } = useRepository();
+  const { workspace } = useWorkspace();
+  const workspaceId = workspace?.id;
   const navigate = useNavigate();
 
   // Fetch authenticated user
@@ -83,7 +82,9 @@ function Dashboard() {
         setLoadingHistory(true);
         setHistoryError("");
 
-        const repositories = await getRepositoryHistory();
+        if (!workspaceId) return;
+
+        const repositories = await getRepositoryHistory(workspaceId);
 
         if (!cancelled) {
           setHistory(repositories);
@@ -106,55 +107,9 @@ function Dashboard() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [workspaceId]);
 
-  // Fetch current repository file count
-  useEffect(() => {
-    let cancelled = false;
-
-    const fetchFileCount = async () => {
-      if (!repository) {
-        setFileCount(0);
-        return;
-      }
-
-      try {
-        setLoadingFiles(true);
-
-        const tree = await getRepositoryTree(
-          repository.owner,
-          repository.repo
-        );
-
-        const files = Array.isArray(tree)
-          ? tree.filter(
-              (item: { type: string }) => item.type === "blob"
-            )
-          : [];
-
-        if (!cancelled) {
-          setFileCount(files.length);
-        }
-      } catch (error) {
-        console.error("Failed to fetch repository file count:", error);
-
-        if (!cancelled) {
-          setFileCount(0);
-        }
-      } finally {
-        if (!cancelled) {
-          setLoadingFiles(false);
-        }
-      }
-    };
-
-    void fetchFileCount();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [repository]);
-
+ 
   // Reopen a repository from history
   const handleOpenHistory = async (item: RepositoryHistoryItem) => {
     const repositoryKey = `${item.owner}/${item.repo}`;
@@ -171,9 +126,11 @@ function Dashboard() {
 
       // Update its last-opened timestamp
       try {
-        await recordRepositoryOpen(item.owner, item.repo);
+        if (!workspaceId) return;
 
-        const updatedHistory = await getRepositoryHistory();
+        await recordRepositoryOpen(item.owner, item.repo, workspaceId);
+
+        const updatedHistory = await getRepositoryHistory(workspaceId);
         setHistory(updatedHistory);
       } catch (historyUpdateError) {
         console.error(
@@ -213,9 +170,11 @@ function Dashboard() {
 
       // Update repository history without blocking navigation
       try {
-        await recordRepositoryOpen(owner, repo);
+        if (!workspaceId) return;
 
-        const updatedHistory = await getRepositoryHistory();
+        await recordRepositoryOpen(owner, repo, workspaceId);
+
+        const updatedHistory = await getRepositoryHistory(workspaceId);
         setHistory(updatedHistory);
       } catch (historyUpdateError) {
         console.error(
@@ -307,7 +266,7 @@ function Dashboard() {
             </p>
 
             <p className="mt-0.5 text-xl font-semibold text-white">
-              {repository ? 1 : 0}
+              {history.length}
             </p>
           </div>
         </div>
@@ -435,27 +394,65 @@ function Dashboard() {
         </div>
 
         <div className="grid min-w-0 gap-5 lg:grid-cols-2">
-          {repository ? (
-            <RepositoryCard
-              name={repository.name}
-              description={repository.description}
-              branch={repository.branch}
-              stars={repository.stars}
-              files={loadingFiles ? 0 : fileCount}
-              indexed={false}
-            />
-          ) : (
-            <EmptyState
-              title="No repository connected"
-              description="Import a GitHub repository to start using DevPilot."
-            />
-          )}
+  {history.length > 0 ? (
+    history.map((item) => {
+      const repositoryKey = `${item.owner}/${item.repo}`;
+      const isOpening = openingRepository === repositoryKey;
 
-          <EmptyState
-            title="No AI conversations"
-            description="Start chatting with your code after importing a repository."
-          />
+      return (
+        <div
+          key={repositoryKey}
+          className="rounded-xl border border-zinc-800 bg-zinc-900/40 p-5"
+        >
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <h3 className="truncate font-semibold text-white">
+                {repositoryKey}
+              </h3>
+
+              <p className="mt-2 line-clamp-2 text-sm text-zinc-400">
+                {item.description || "No description available."}
+              </p>
+            </div>
+
+            <GitBranch className="h-5 w-5 shrink-0 text-blue-400" />
+          </div>
+
+          <div className="mt-5 flex items-center justify-between gap-3">
+            <span className="text-xs text-zinc-500">
+              Recently opened repository
+            </span>
+
+            <button
+              type="button"
+              onClick={() => void handleOpenHistory(item)}
+              disabled={openingRepository !== null}
+              className="flex items-center gap-2 rounded-lg border border-blue-500/20 bg-blue-500/10 px-3 py-2 text-sm font-medium text-blue-400 hover:bg-blue-500/20 disabled:opacity-50"
+            >
+              {isOpening ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <ExternalLink className="h-4 w-4" />
+              )}
+
+              {isOpening ? "Opening..." : "Open repository"}
+            </button>
+          </div>
         </div>
+      );
+    })
+  ) : (
+    <EmptyState
+      title="No repositories connected"
+      description="Import a GitHub repository to start using DevPilot."
+    />
+  )}
+
+  <EmptyState
+    title="No AI conversations"
+    description="Start chatting with your code after importing a repository."
+  />
+</div>
       </section>
 
       {/* Workspace hint */}

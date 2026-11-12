@@ -1,4 +1,4 @@
-
+﻿
 import pytest
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
@@ -24,6 +24,12 @@ def index_api_client(tmp_path, monkeypatch):
         "login": "test-user",
         "name": "Test User",
     })
+
+    database.create_workspace(
+        "test-workspace-1001",
+        1001,
+        "Test Workspace",
+    )
 
     app.dependency_overrides[get_current_session] = lambda: {
         "access_token": "test-token",
@@ -65,7 +71,8 @@ def test_index_creates_successful_activity(
 
     response = index_api_client.post(
         "/index/",
-        params={"owner": "test-owner", "repo": "test-repo"},
+        params={"owner": "test-owner", "repo": "test-repo",
+        "workspace_id": "test-workspace-1001", "workspace_id": "test-workspace-1001"},
     )
 
     assert response.status_code == 200
@@ -76,6 +83,7 @@ def test_index_creates_successful_activity(
 
     activities = database.list_activities(
         user_id=1001,
+        workspace_id="test-workspace-1001",
         owner="test-owner",
         repo="test-repo",
     )
@@ -111,13 +119,15 @@ def test_index_records_failed_activity(
 
     response = index_api_client.post(
         "/index/",
-        params={"owner": "test-owner", "repo": "test-repo"},
+        params={"owner": "test-owner", "repo": "test-repo",
+        "workspace_id": "test-workspace-1001", "workspace_id": "test-workspace-1001"},
     )
 
     assert response.status_code == 500
 
     activities = database.list_activities(
         user_id=1001,
+        workspace_id="test-workspace-1001",
         owner="test-owner",
         repo="test-repo",
     )
@@ -146,11 +156,13 @@ def test_index_does_not_record_activity_when_access_is_denied(
 
     response = index_api_client.post(
         "/index/",
-        params={"owner": "test-owner", "repo": "test-repo"},
+        params={"owner": "test-owner", "repo": "test-repo",
+        "workspace_id": "test-workspace-1001", "workspace_id": "test-workspace-1001"},
     )
 
     assert response.status_code == 403
 
-    activities = database.list_activities(user_id=1001)
+    activities = database.list_activities(user_id=1001, workspace_id="test-workspace-1001")
 
     assert activities == []
+

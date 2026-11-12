@@ -35,6 +35,18 @@ def get_user_id(session: dict) -> int:
     return user_id
 
 
+def validate_workspace_id(workspace_id: str) -> str:
+    """Validate the active workspace ID."""
+
+    if not isinstance(workspace_id, str) or not workspace_id.strip():
+        raise HTTPException(
+            status_code=400,
+            detail="Workspace ID is required.",
+        )
+
+    return workspace_id.strip()
+
+
 async def verify_repository_access(
     owner: str,
     repo: str,
@@ -60,14 +72,16 @@ async def verify_repository_access(
 def verify_conversation(
     conversation_id: str,
     user_id: int,
+    workspace_id: str,
     owner: str,
     repo: str,
 ):
-    """Verify conversation ownership and repository association."""
+    """Verify conversation ownership, workspace, and repository."""
 
     conversation = get_conversation(
-        conversation_id,
-        user_id,
+        conversation_id=conversation_id,
+        user_id=user_id,
+        workspace_id=workspace_id,
     )
 
     if conversation is None:
@@ -92,9 +106,11 @@ def verify_conversation(
 async def create_new_conversation(
     owner: str,
     repo: str,
+    workspace_id: str = Query(..., min_length=1),
     session: dict = Depends(get_current_session),
 ):
     user_id = get_user_id(session)
+    workspace_id = validate_workspace_id(workspace_id)
 
     await verify_repository_access(
         owner,
@@ -102,11 +118,18 @@ async def create_new_conversation(
         session,
     )
 
-    conversation = create_conversation(
-        user_id,
-        owner,
-        repo,
-    )
+    try:
+        conversation = create_conversation(
+            user_id=user_id,
+            workspace_id=workspace_id,
+            owner=owner,
+            repo=repo,
+        )
+    except ValueError:
+        raise HTTPException(
+            status_code=404,
+            detail="Workspace not found.",
+        ) from None
 
     return {"conversation": conversation}
 
@@ -115,9 +138,11 @@ async def create_new_conversation(
 async def get_conversations(
     owner: str,
     repo: str,
+    workspace_id: str = Query(..., min_length=1),
     session: dict = Depends(get_current_session),
 ):
     user_id = get_user_id(session)
+    workspace_id = validate_workspace_id(workspace_id)
 
     await verify_repository_access(
         owner,
@@ -125,11 +150,18 @@ async def get_conversations(
         session,
     )
 
-    conversations = list_conversations(
-        user_id,
-        owner,
-        repo,
-    )
+    try:
+        conversations = list_conversations(
+            user_id=user_id,
+            workspace_id=workspace_id,
+            owner=owner,
+            repo=repo,
+        )
+    except ValueError:
+        raise HTTPException(
+            status_code=404,
+            detail="Workspace not found.",
+        ) from None
 
     return {"conversations": conversations}
 
@@ -139,9 +171,11 @@ async def get_conversation_history(
     conversation_id: str,
     owner: str,
     repo: str,
+    workspace_id: str = Query(..., min_length=1),
     session: dict = Depends(get_current_session),
 ):
     user_id = get_user_id(session)
+    workspace_id = validate_workspace_id(workspace_id)
 
     await verify_repository_access(
         owner,
@@ -152,14 +186,22 @@ async def get_conversation_history(
     verify_conversation(
         conversation_id,
         user_id,
+        workspace_id,
         owner,
         repo,
     )
 
     messages = get_conversation_messages(
-        conversation_id,
-        user_id,
+        conversation_id=conversation_id,
+        user_id=user_id,
+        workspace_id=workspace_id,
     )
+
+    if messages is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Conversation not found.",
+        )
 
     return {
         "conversation_id": conversation_id,
@@ -172,9 +214,11 @@ async def remove_conversation(
     conversation_id: str,
     owner: str,
     repo: str,
+    workspace_id: str = Query(..., min_length=1),
     session: dict = Depends(get_current_session),
 ):
     user_id = get_user_id(session)
+    workspace_id = validate_workspace_id(workspace_id)
 
     await verify_repository_access(
         owner,
@@ -185,14 +229,22 @@ async def remove_conversation(
     verify_conversation(
         conversation_id,
         user_id,
+        workspace_id,
         owner,
         repo,
     )
 
-    delete_conversation(
-        conversation_id,
-        user_id,
+    deleted = delete_conversation(
+        conversation_id=conversation_id,
+        user_id=user_id,
+        workspace_id=workspace_id,
     )
+
+    if not deleted:
+        raise HTTPException(
+            status_code=404,
+            detail="Conversation not found.",
+        )
 
     return {"message": "Conversation deleted."}
 
@@ -200,9 +252,11 @@ async def remove_conversation(
 @router.post("/")
 async def chat(
     request: ChatRequest,
+    workspace_id: str = Query(..., min_length=1),
     session: dict = Depends(get_current_session),
 ):
     user_id = get_user_id(session)
+    workspace_id = validate_workspace_id(workspace_id)
 
     await verify_repository_access(
         request.owner,
@@ -219,43 +273,62 @@ async def chat(
     verify_conversation(
         request.conversation_id,
         user_id,
+        workspace_id,
         request.owner,
         request.repo,
     )
 
-    add_conversation_message(
-        request.conversation_id,
-        "user",
-        request.message,
-    )
+    try:
+        add_conversation_message(
+            conversation_id=request.conversation_id,
+            role="user",
+            content=request.message,
+            user_id=user_id,
+            workspace_id=workspace_id,
+        )
 
-    stored_messages = get_conversation_messages(
-        request.conversation_id,
-        user_id,
-    )
+        stored_messages = get_conversation_messages(
+            conversation_id=request.conversation_id,
+            user_id=user_id,
+            workspace_id=workspace_id,
+        )
 
-    history = [
-    ChatMessage(
-        role=message["role"],
-        content=message["content"],
-    )
-    for message in stored_messages[:-1]
-]
+        if stored_messages is None:
+            raise HTTPException(
+                status_code=404,
+                detail="Conversation not found.",
+            )
 
-    response = await ask_ai(
-        request.owner,
-        request.repo,
-        request.message,
-        history,
-        user_id=user_id,
-    )
+        history = [
+            ChatMessage(
+                role=message["role"],
+                content=message["content"],
+            )
+            for message in stored_messages[:-1]
+        ]
 
-    add_conversation_message(
-        request.conversation_id,
-        "assistant",
-        response["response"],
-        sources=response.get("sources", []),
-    )
+        response = await ask_ai(
+            request.owner,
+            request.repo,
+            request.message,
+            history,
+            user_id=user_id,
+        )
+
+        add_conversation_message(
+            conversation_id=request.conversation_id,
+            role="assistant",
+            content=response["response"],
+            sources=response.get("sources", []),
+            user_id=user_id,
+            workspace_id=workspace_id,
+        )
+
+    except ValueError:
+        raise HTTPException(
+            status_code=404,
+            detail="Conversation not found in this workspace.",
+        ) from None
 
     return {
         **response,

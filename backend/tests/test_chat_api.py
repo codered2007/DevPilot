@@ -1,11 +1,14 @@
 
+import pytest
 from fastapi.testclient import TestClient
 
 from app.api.dependencies import get_current_session
 from app.main import app
 from app import database
-from pathlib import Path
 
+
+USER_WORKSPACE = "test-workspace-101"
+OTHER_WORKSPACE = "test-workspace-202"
 
 client = TestClient(app)
 
@@ -28,6 +31,14 @@ def setup_user_database(monkeypatch, tmp_path):
         "id": 202,
         "login": "bob",
     })
+
+    database.create_workspace(
+        USER_WORKSPACE, 101, "Alice Workspace"
+    )
+
+    database.create_workspace(
+        OTHER_WORKSPACE, 202, "Bob Workspace"
+    )
 
 
 def mock_repository_access(monkeypatch):
@@ -61,10 +72,56 @@ def cleanup_authentication():
     )
 
 
+def conversation_params(
+    workspace_id=USER_WORKSPACE,
+    repo="repo",
+):
+    return {
+        "workspace_id": workspace_id,
+        "owner": "owner",
+        "repo": repo,
+    }
+
+
+def create_test_conversation(
+    user_id=101,
+    workspace_id=USER_WORKSPACE,
+    repo="repo",
+    title="New conversation",
+):
+    return database.create_conversation(
+        user_id=user_id,
+        workspace_id=workspace_id,
+        owner="owner",
+        repo=repo,
+        title=title,
+    )
+
+
+def add_test_message(
+    conversation_id,
+    role,
+    content,
+    sources=None,
+    user_id=101,
+    workspace_id=USER_WORKSPACE,
+):
+    return database.add_conversation_message(
+        conversation_id=conversation_id,
+        role=role,
+        content=content,
+        sources=sources,
+        user_id=user_id,
+        workspace_id=workspace_id,
+    )
+
+
 def test_chat_conversations_require_authentication():
+    cleanup_authentication()
+
     response = client.get(
         "/chat/conversations",
-        params={"owner": "owner", "repo": "repo"},
+        params=conversation_params(),
     )
 
     assert response.status_code == 401
@@ -78,7 +135,7 @@ def test_create_and_list_conversations(monkeypatch, tmp_path):
     try:
         created = client.post(
             "/chat/conversations",
-            params={"owner": "owner", "repo": "repo"},
+            params=conversation_params(),
         )
 
         assert created.status_code == 200
@@ -86,12 +143,13 @@ def test_create_and_list_conversations(monkeypatch, tmp_path):
         conversation = created.json()["conversation"]
 
         assert conversation["user_id"] == 101
+        assert conversation["workspace_id"] == USER_WORKSPACE
         assert conversation["owner"] == "owner"
         assert conversation["repo"] == "repo"
 
         listed = client.get(
             "/chat/conversations",
-            params={"owner": "owner", "repo": "repo"},
+            params=conversation_params(),
         )
 
         assert listed.status_code == 200
@@ -111,11 +169,10 @@ def test_user_cannot_access_another_users_conversation(
 ):
     setup_user_database(monkeypatch, tmp_path)
 
-    conversation = database.create_conversation(
-        202,
-        "owner",
-        "repo",
-        "Bob's private chat",
+    conversation = create_test_conversation(
+        user_id=202,
+        workspace_id=OTHER_WORKSPACE,
+        title="Bob's private chat",
     )
 
     mock_repository_access(monkeypatch)
@@ -124,7 +181,7 @@ def test_user_cannot_access_another_users_conversation(
     try:
         response = client.get(
             f"/chat/conversations/{conversation['id']}",
-            params={"owner": "owner", "repo": "repo"},
+            params=conversation_params(OTHER_WORKSPACE),
         )
 
         assert response.status_code == 404
@@ -139,19 +196,15 @@ def test_conversation_messages_can_be_restored(
 ):
     setup_user_database(monkeypatch, tmp_path)
 
-    conversation = database.create_conversation(
-        101,
-        "owner",
-        "repo",
-    )
+    conversation = create_test_conversation()
 
-    database.add_conversation_message(
+    add_test_message(
         conversation["id"],
         "user",
         "Explain this repository",
     )
 
-    database.add_conversation_message(
+    add_test_message(
         conversation["id"],
         "assistant",
         "This is a test response.",
@@ -164,7 +217,7 @@ def test_conversation_messages_can_be_restored(
     try:
         response = client.get(
             f"/chat/conversations/{conversation['id']}",
-            params={"owner": "owner", "repo": "repo"},
+            params=conversation_params(),
         )
 
         assert response.status_code == 200
@@ -186,13 +239,9 @@ def test_user_can_delete_own_conversation(
 ):
     setup_user_database(monkeypatch, tmp_path)
 
-    conversation = database.create_conversation(
-        101,
-        "owner",
-        "repo",
-    )
+    conversation = create_test_conversation()
 
-    database.add_conversation_message(
+    add_test_message(
         conversation["id"],
         "user",
         "Hello",
@@ -204,7 +253,7 @@ def test_user_can_delete_own_conversation(
     try:
         response = client.delete(
             f"/chat/conversations/{conversation['id']}",
-            params={"owner": "owner", "repo": "repo"},
+            params=conversation_params(),
         )
 
         assert response.status_code == 200
@@ -212,6 +261,7 @@ def test_user_can_delete_own_conversation(
         assert database.get_conversation(
             conversation["id"],
             101,
+            USER_WORKSPACE,
         ) is None
 
     finally:
@@ -224,11 +274,7 @@ def test_conversation_cannot_be_used_with_another_repository(
 ):
     setup_user_database(monkeypatch, tmp_path)
 
-    conversation = database.create_conversation(
-        101,
-        "owner",
-        "repo",
-    )
+    conversation = create_test_conversation()
 
     mock_repository_access(monkeypatch)
     authenticate()
@@ -236,13 +282,73 @@ def test_conversation_cannot_be_used_with_another_repository(
     try:
         response = client.get(
             f"/chat/conversations/{conversation['id']}",
-            params={
-                "owner": "owner",
-                "repo": "another-repo",
-            },
+            params=conversation_params(repo="another-repo"),
         )
 
         assert response.status_code == 404
+
+    finally:
+        cleanup_authentication()
+
+
+def test_conversation_cannot_be_accessed_from_another_workspace(
+    monkeypatch,
+    tmp_path,
+):
+    setup_user_database(monkeypatch, tmp_path)
+
+    second_workspace = "second-workspace-101"
+
+    database.create_workspace(
+        second_workspace, 101, "Second Workspace"
+    )
+
+    conversation = create_test_conversation()
+
+    mock_repository_access(monkeypatch)
+    authenticate()
+
+    try:
+        response = client.get(
+            f"/chat/conversations/{conversation['id']}",
+            params=conversation_params(second_workspace),
+        )
+
+        assert response.status_code == 404
+
+        response = client.delete(
+            f"/chat/conversations/{conversation['id']}",
+            params=conversation_params(second_workspace),
+        )
+
+        assert response.status_code == 404
+
+        assert database.get_conversation(
+            conversation["id"], 101, USER_WORKSPACE
+        ) is not None
+
+    finally:
+        cleanup_authentication()
+
+
+def test_chat_conversations_require_workspace_id(
+    monkeypatch,
+    tmp_path,
+):
+    setup_user_database(monkeypatch, tmp_path)
+    mock_repository_access(monkeypatch)
+    authenticate()
+
+    try:
+        response = client.get(
+            "/chat/conversations",
+            params={
+                "owner": "owner",
+                "repo": "repo",
+            },
+        )
+
+        assert response.status_code == 422
 
     finally:
         cleanup_authentication()

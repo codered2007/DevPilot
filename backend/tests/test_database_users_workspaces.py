@@ -357,3 +357,166 @@ def test_cleanup_queue_rejects_invalid_limit(isolated_database):
 def test_cleanup_failure_rejects_empty_error(isolated_database):
     with pytest.raises(ValueError):
         database.fail_chroma_cleanup("some-collection", "")
+
+
+def test_saved_result_can_be_created_and_retrieved(isolated_database):
+    database.upsert_user(github_user(101, "alice"))
+    database.create_workspace("alice-ws", 101, "Alice workspace")
+
+    saved = database.save_result(
+        user_id=101,
+        workspace_id="alice-ws",
+        owner="alice",
+        repo="devpilot",
+        result_type="summary",
+        title="Repository Summary",
+        content={"overview": "A FastAPI project."},
+    )
+
+    retrieved = database.get_saved_result(
+        saved["id"], 101, "alice-ws"
+    )
+
+    assert retrieved is not None
+    assert retrieved["workspace_id"] == "alice-ws"
+    assert retrieved["owner"] == "alice"
+    assert retrieved["repo"] == "devpilot"
+    assert retrieved["result_type"] == "summary"
+    assert retrieved["content"]["overview"] == "A FastAPI project."
+
+
+def test_users_only_list_their_own_saved_results(isolated_database):
+    database.upsert_user(github_user(101, "alice"))
+    database.upsert_user(github_user(202, "bob"))
+
+    database.create_workspace("alice-ws", 101, "Alice workspace")
+    database.create_workspace("bob-ws", 202, "Bob workspace")
+
+    database.save_result(
+        101, "alice-ws", "alice", "devpilot", "summary",
+        "Alice Summary", {"text": "Alice"},
+    )
+
+    database.save_result(
+        202, "bob-ws", "bob", "devpilot", "summary",
+        "Bob Summary", {"text": "Bob"},
+    )
+
+    alice_results = database.list_saved_results(101, "alice-ws")
+    bob_results = database.list_saved_results(202, "bob-ws")
+
+    assert len(alice_results) == 1
+    assert alice_results[0]["title"] == "Alice Summary"
+    assert len(bob_results) == 1
+    assert bob_results[0]["title"] == "Bob Summary"
+
+
+def test_saved_results_can_be_filtered(isolated_database):
+    database.upsert_user(github_user(101, "alice"))
+    database.create_workspace("alice-ws", 101, "Alice workspace")
+
+    database.save_result(
+        101, "alice-ws", "alice", "devpilot", "summary",
+        "Summary", {"text": "Summary"},
+    )
+
+    database.save_result(
+        101, "alice-ws", "alice", "devpilot", "security",
+        "Security", {"text": "Security"},
+    )
+
+    results = database.list_saved_results(
+        user_id=101,
+        workspace_id="alice-ws",
+        owner="alice",
+        repo="devpilot",
+        result_type="security",
+    )
+
+    assert len(results) == 1
+    assert results[0]["result_type"] == "security"
+
+
+def test_user_cannot_access_another_users_saved_result(
+    isolated_database,
+):
+    database.upsert_user(github_user(101, "alice"))
+    database.upsert_user(github_user(202, "bob"))
+
+    database.create_workspace("alice-ws", 101, "Alice workspace")
+    database.create_workspace("bob-ws", 202, "Bob workspace")
+
+    saved = database.save_result(
+        202, "bob-ws", "bob", "devpilot", "summary",
+        "Private Summary", {"text": "Private"},
+    )
+
+    assert database.get_saved_result(
+        saved["id"], 101, "bob-ws"
+    ) is None
+
+    assert database.delete_saved_result(
+        saved["id"], 101, "bob-ws"
+    ) is False
+
+    assert database.get_saved_result(
+        saved["id"], 202, "bob-ws"
+    ) is not None
+
+
+def test_user_can_delete_own_saved_result(isolated_database):
+    database.upsert_user(github_user(101, "alice"))
+    database.create_workspace("alice-ws", 101, "Alice workspace")
+
+    saved = database.save_result(
+        101, "alice-ws", "alice", "devpilot", "summary",
+        "Summary", {"text": "Content"},
+    )
+
+    assert database.delete_saved_result(
+        saved["id"], 101, "alice-ws"
+    ) is True
+
+    assert database.get_saved_result(
+        saved["id"], 101, "alice-ws"
+    ) is None
+
+
+def test_saved_result_rejects_invalid_type(isolated_database):
+    database.upsert_user(github_user(101, "alice"))
+    database.create_workspace("alice-ws", 101, "Alice workspace")
+
+    with pytest.raises(ValueError):
+        database.save_result(
+            101, "alice-ws", "alice", "devpilot", "invalid",
+            "Invalid Result", {"text": "Content"},
+        )
+
+
+def test_saved_results_are_isolated_between_workspaces(
+    isolated_database,
+):
+    database.upsert_user(github_user(101, "alice"))
+
+    database.create_workspace("workspace-a", 101, "Workspace A")
+    database.create_workspace("workspace-b", 101, "Workspace B")
+
+    saved = database.save_result(
+        101, "workspace-a", "alice", "devpilot", "summary",
+        "Workspace A Summary", {"text": "Private to A"},
+    )
+
+    assert len(database.list_saved_results(101, "workspace-a")) == 1
+    assert database.list_saved_results(101, "workspace-b") == []
+
+    assert database.get_saved_result(
+        saved["id"], 101, "workspace-b"
+    ) is None
+
+    assert database.delete_saved_result(
+        saved["id"], 101, "workspace-b"
+    ) is False
+
+    assert database.get_saved_result(
+        saved["id"], 101, "workspace-a"
+    ) is not None

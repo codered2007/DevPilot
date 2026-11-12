@@ -24,6 +24,11 @@ def architecture_api_client(tmp_path, monkeypatch):
         "login": "test-user",
         "name": "Test User",
     })
+    database.create_workspace(
+    "test-workspace-1001",
+    1001,
+    "Test Workspace",
+)
 
     app.dependency_overrides[get_current_session] = lambda: {
         "access_token": "test-token",
@@ -62,17 +67,22 @@ def test_architecture_analysis_creates_successful_activity(
 
     response = architecture_api_client.post(
         "/architecture-analysis/",
-        params={"owner": "test-owner", "repo": "test-repo"},
+        params={
+    "owner": "test-owner",
+    "repo": "test-repo",
+    "workspace_id": "test-workspace-1001",
+},
     )
 
     assert response.status_code == 200
     assert response.json()["architecture"] == "Layered architecture"
 
     activities = database.list_activities(
-        user_id=1001,
-        owner="test-owner",
-        repo="test-repo",
-    )
+    user_id=1001,
+    workspace_id="test-workspace-1001",
+    owner="test-owner",
+    repo="test-repo",
+)
 
     assert len(activities) == 1
     assert activities[0]["action_type"] == "architecture_analysis"
@@ -102,12 +112,16 @@ def test_architecture_analysis_records_failed_activity(
 
     response = architecture_api_client.post(
         "/architecture-analysis/",
-        params={"owner": "test-owner", "repo": "test-repo"},
+        params={
+    "owner": "test-owner",
+    "repo": "test-repo",
+    "workspace_id": "test-workspace-1001",
+},
     )
 
     assert response.status_code == 500
 
-    activities = database.list_activities(user_id=1001)
+    activities = database.list_activities(user_id=1001, workspace_id="test-workspace-1001")
 
     assert len(activities) == 1
     assert activities[0]["status"] == "failed"
@@ -137,12 +151,16 @@ def test_architecture_analysis_empty_result_records_failure(
 
     response = architecture_api_client.post(
         "/architecture-analysis/",
-        params={"owner": "test-owner", "repo": "test-repo"},
+        params={
+    "owner": "test-owner",
+    "repo": "test-repo",
+    "workspace_id": "test-workspace-1001",
+},
     )
 
     assert response.status_code == 400
 
-    activities = database.list_activities(user_id=1001)
+    activities = database.list_activities(user_id=1001, workspace_id="test-workspace-1001")
 
     assert len(activities) == 1
     assert activities[0]["status"] == "failed"
@@ -167,8 +185,12 @@ def test_architecture_analysis_access_denial_creates_no_activity(
 
     response = architecture_api_client.post(
         "/architecture-analysis/",
-        params={"owner": "test-owner", "repo": "test-repo"},
+        params={
+    "owner": "test-owner",
+    "repo": "test-repo",
+    "workspace_id": "test-workspace-1001",
+},
     )
 
     assert response.status_code == 403
-    assert database.list_activities(user_id=1001) == []
+    assert database.list_activities(user_id=1001, workspace_id="test-workspace-1001") == []

@@ -1,5 +1,5 @@
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 
 from app import database
 from app.api.dependencies import get_current_session
@@ -17,6 +17,7 @@ router = APIRouter(
 @router.post("/")
 async def explain(
     request: ExplainRequest,
+    workspace_id: str = Query(..., min_length=1),
     session: dict = Depends(get_current_session),
 ):
     token = session.get("access_token")
@@ -36,6 +37,7 @@ async def explain(
 
     activity = database.create_activity(
         user_id=user_id,
+        workspace_id=workspace_id,
         owner=request.owner,
         repo=request.repo,
         action_type="code_explanation",
@@ -62,6 +64,7 @@ async def explain(
         database.complete_activity(
             activity_id=activity["id"],
             user_id=user_id,
+            workspace_id=workspace_id,
             status="success",
             details={
                 "explanation": response,
@@ -76,6 +79,7 @@ async def explain(
         database.complete_activity(
             activity_id=activity["id"],
             user_id=user_id,
+            workspace_id=workspace_id,
             status="failed",
             details={
                 "error_type": type(exc).__name__,

@@ -1,5 +1,5 @@
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 
 from app import database
 from app.api.dependencies import get_current_session
@@ -17,6 +17,7 @@ router = APIRouter(
 @router.post("/")
 async def code_action(
     request: CodeActionRequest,
+    workspace_id: str = Query(..., min_length=1),
     session: dict = Depends(get_current_session),
 ):
     token = session.get("access_token")
@@ -36,6 +37,7 @@ async def code_action(
 
     activity = database.create_activity(
         user_id=user_id,
+        workspace_id=workspace_id,
         owner=request.owner,
         repo=request.repo,
         action_type="code_suggestion",
@@ -65,6 +67,7 @@ async def code_action(
         database.complete_activity(
             activity_id=activity["id"],
             user_id=user_id,
+            workspace_id=workspace_id,
             status="success",
             details={
                 "original_code": request.code,
@@ -82,6 +85,7 @@ async def code_action(
         database.complete_activity(
             activity_id=activity["id"],
             user_id=user_id,
+            workspace_id=workspace_id,
             status="failed",
             details={
                 "error_type": type(exc).__name__,

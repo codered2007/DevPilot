@@ -19,6 +19,7 @@ import {
   getActivity,
   type Activity,
 } from "../../services/api";
+import { useWorkspace } from "../../context/useWorkspace";
 
 interface RecentActivityProps {
   onOpenRepository: (owner: string, repo: string) => void;
@@ -77,6 +78,9 @@ function isCodeField(key: string): boolean {
 function RecentActivity({
   onOpenRepository,
 }: RecentActivityProps) {
+  const { workspace } = useWorkspace();
+  const workspaceId = workspace?.id;
+
   const [activities, setActivities] = useState<Activity[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -88,11 +92,17 @@ function RecentActivity({
   const [viewError, setViewError] = useState("");
 
   async function loadActivities() {
+    if (!workspaceId) {
+      setActivities([]);
+      setLoading(false);
+      return;
+    }
+
     try {
       setLoading(true);
       setError("");
 
-      const result = await getRecentActivities(20);
+      const result = await getRecentActivities(workspaceId, 20);
       setActivities(result);
     } catch (err) {
       console.error("Failed to load recent activity:", err);
@@ -103,13 +113,15 @@ function RecentActivity({
   }
 
   async function handleViewResult(activityId: string) {
+    if (!workspaceId) return;
+
     setViewerOpen(true);
     setSelectedActivity(null);
     setViewingId(activityId);
     setViewError("");
 
     try {
-      const activity = await getActivity(activityId);
+      const activity = await getActivity(activityId, workspaceId);
       setSelectedActivity(activity);
     } catch (err) {
       console.error("Failed to load activity result:", err);
@@ -128,7 +140,7 @@ function RecentActivity({
 
   useEffect(() => {
     void loadActivities();
-  }, []);
+  }, [workspaceId]);
 
   return (
     <section className="min-w-0">

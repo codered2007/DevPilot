@@ -1,4 +1,4 @@
-
+﻿
 import pytest
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
@@ -24,6 +24,12 @@ def dependency_api_client(tmp_path, monkeypatch):
         "login": "test-user",
         "name": "Test User",
     })
+
+    database.create_workspace(
+        "test-workspace-1001",
+        1001,
+        "Test Workspace",
+    )
 
     app.dependency_overrides[get_current_session] = lambda: {
         "access_token": "test-token",
@@ -62,7 +68,8 @@ def test_dependency_analysis_creates_successful_activity(
 
     response = dependency_api_client.post(
         "/dependency-analysis/",
-        params={"owner": "test-owner", "repo": "test-repo"},
+        params={"owner": "test-owner", "repo": "test-repo",
+        "workspace_id": "test-workspace-1001", "workspace_id": "test-workspace-1001"},
     )
 
     assert response.status_code == 200
@@ -70,6 +77,7 @@ def test_dependency_analysis_creates_successful_activity(
 
     activities = database.list_activities(
         user_id=1001,
+        workspace_id="test-workspace-1001",
         owner="test-owner",
         repo="test-repo",
     )
@@ -102,12 +110,13 @@ def test_dependency_analysis_records_failed_activity(
 
     response = dependency_api_client.post(
         "/dependency-analysis/",
-        params={"owner": "test-owner", "repo": "test-repo"},
+        params={"owner": "test-owner", "repo": "test-repo",
+        "workspace_id": "test-workspace-1001", "workspace_id": "test-workspace-1001"},
     )
 
     assert response.status_code == 500
 
-    activities = database.list_activities(user_id=1001)
+    activities = database.list_activities(user_id=1001, workspace_id="test-workspace-1001")
 
     assert len(activities) == 1
     assert activities[0]["action_type"] == "dependency_analysis"
@@ -138,12 +147,13 @@ def test_dependency_analysis_empty_result_records_failure(
 
     response = dependency_api_client.post(
         "/dependency-analysis/",
-        params={"owner": "test-owner", "repo": "test-repo"},
+        params={"owner": "test-owner", "repo": "test-repo",
+        "workspace_id": "test-workspace-1001", "workspace_id": "test-workspace-1001"},
     )
 
     assert response.status_code == 400
 
-    activities = database.list_activities(user_id=1001)
+    activities = database.list_activities(user_id=1001, workspace_id="test-workspace-1001")
 
     assert len(activities) == 1
     assert activities[0]["action_type"] == "dependency_analysis"
@@ -169,8 +179,10 @@ def test_dependency_analysis_access_denial_creates_no_activity(
 
     response = dependency_api_client.post(
         "/dependency-analysis/",
-        params={"owner": "test-owner", "repo": "test-repo"},
+        params={"owner": "test-owner", "repo": "test-repo",
+        "workspace_id": "test-workspace-1001", "workspace_id": "test-workspace-1001"},
     )
 
     assert response.status_code == 403
-    assert database.list_activities(user_id=1001) == []
+    assert database.list_activities(user_id=1001, workspace_id="test-workspace-1001") == []
+

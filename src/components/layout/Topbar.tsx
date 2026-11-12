@@ -58,8 +58,6 @@ const handleLogout = async () => {
   } finally {
     // Clear in-memory review-fix state in mounted components.
     window.dispatchEvent(new Event("devpilot-logout"));
-    // Remove temporary review-fix data.
-    sessionStorage.removeItem("devpilot_review_fix");
    
     // Clear DevPilot-specific browser storage.
     for (const key of Object.keys(localStorage)) {

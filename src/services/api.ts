@@ -69,18 +69,25 @@ export interface RepositoryHistoryItem {
   last_opened_at: number;
 }
 
-export async function getRepositoryHistory(): Promise<
-  RepositoryHistoryItem[]
-> {
+export async function getRepositoryHistory(
+  workspaceId: string
+): Promise<RepositoryHistoryItem[]> {
+  const params = new URLSearchParams({
+    workspace_id: workspaceId,
+  });
+
   const response = await fetch(
-    `${API_URL}/repositories/history`,
+    `${API_URL}/repositories/history?${params}`,
     {
       credentials: "include",
     }
   );
 
   if (!response.ok) {
-    throw new Error("Failed to fetch repository history");
+    const error = await response.json().catch(() => null);
+    throw new Error(
+      error?.detail || "Failed to fetch repository history"
+    );
   }
 
   const data = await response.json();
@@ -89,10 +96,15 @@ export async function getRepositoryHistory(): Promise<
 
 export async function recordRepositoryOpen(
   owner: string,
-  repo: string
+  repo: string,
+  workspaceId: string
 ): Promise<void> {
+  const params = new URLSearchParams({
+    workspace_id: workspaceId,
+  });
+
   const response = await fetch(
-    `${API_URL}/repositories/history`,
+    `${API_URL}/repositories/history?${params}`,
     {
       method: "POST",
       credentials: "include",
@@ -104,19 +116,12 @@ export async function recordRepositoryOpen(
   );
 
   if (!response.ok) {
-    let message = "Failed to record repository history";
-
-    try {
-      const error = await response.json();
-      if (error.detail) message = error.detail;
-    } catch {
-      // Keep default error message.
-    }
-
-    throw new Error(message);
+    const error = await response.json().catch(() => null);
+    throw new Error(
+      error?.detail || "Failed to record repository history"
+    );
   }
 }
-
 
 
 export async function getRepositoryTree(
@@ -167,10 +172,13 @@ export async function chatWithAI(
   repo: string,
   message: string,
   history: ChatMessage[],
-  conversationId: string
+  conversationId: string,
+  workspaceId: string
 ): Promise<ChatResponse> {
+  const params = new URLSearchParams({ workspace_id: workspaceId });
+
   const response = await fetch(
-    `${API_URL}/chat/`,
+    `${API_URL}/chat/?${params}`,
     {
       method: "POST",
       credentials: "include",
@@ -202,11 +210,18 @@ export async function chatWithAI(
 
   return response.json();
 }
+
+
 export async function createConversation(
   owner: string,
-  repo: string
+  repo: string,
+  workspaceId: string
 ): Promise<Conversation> {
-  const params = new URLSearchParams({ owner, repo });
+  const params = new URLSearchParams({
+    owner,
+    repo,
+    workspace_id: workspaceId,
+  });
 
   const response = await fetch(
     `${API_URL}/chat/conversations?${params}`,
@@ -217,7 +232,8 @@ export async function createConversation(
   );
 
   if (!response.ok) {
-    throw new Error("Failed to create conversation");
+    const error = await response.json().catch(() => null);
+    throw new Error(error?.detail || "Failed to create conversation");
   }
 
   const data = await response.json();
@@ -227,9 +243,14 @@ export async function createConversation(
 
 export async function getConversations(
   owner: string,
-  repo: string
+  repo: string,
+  workspaceId: string
 ): Promise<Conversation[]> {
-  const params = new URLSearchParams({ owner, repo });
+  const params = new URLSearchParams({
+    owner,
+    repo,
+    workspace_id: workspaceId,
+  });
 
   const response = await fetch(
     `${API_URL}/chat/conversations?${params}`,
@@ -239,20 +260,25 @@ export async function getConversations(
   );
 
   if (!response.ok) {
-    throw new Error("Failed to fetch conversations");
+    const error = await response.json().catch(() => null);
+    throw new Error(error?.detail || "Failed to fetch conversations");
   }
 
   const data = await response.json();
   return data.conversations;
 }
 
-
 export async function getConversationMessages(
   conversationId: string,
   owner: string,
-  repo: string
+  repo: string,
+  workspaceId: string
 ): Promise<ConversationHistoryMessage[]> {
-  const params = new URLSearchParams({ owner, repo });
+  const params = new URLSearchParams({
+    owner,
+    repo,
+    workspace_id: workspaceId,
+  });
 
   const response = await fetch(
     `${API_URL}/chat/conversations/${encodeURIComponent(
@@ -264,7 +290,8 @@ export async function getConversationMessages(
   );
 
   if (!response.ok) {
-    throw new Error("Failed to fetch conversation messages");
+    const error = await response.json().catch(() => null);
+    throw new Error(error?.detail || "Failed to fetch conversation messages");
   }
 
   const data = await response.json();
@@ -275,9 +302,14 @@ export async function getConversationMessages(
 export async function deleteConversation(
   conversationId: string,
   owner: string,
-  repo: string
+  repo: string,
+  workspaceId: string
 ): Promise<void> {
-  const params = new URLSearchParams({ owner, repo });
+  const params = new URLSearchParams({
+    owner,
+    repo,
+    workspace_id: workspaceId,
+  });
 
   const response = await fetch(
     `${API_URL}/chat/conversations/${encodeURIComponent(
@@ -290,17 +322,25 @@ export async function deleteConversation(
   );
 
   if (!response.ok) {
-    throw new Error("Failed to delete conversation");
+    const error = await response.json().catch(() => null);
+    throw new Error(error?.detail || "Failed to delete conversation");
   }
 }
+
+
 export async function getRepositorySummary(
   owner: string,
-  repo: string
+  repo: string,
+  workspaceId: string
 ) {
+  const params = new URLSearchParams({
+    owner,
+    repo,
+    workspace_id: workspaceId,
+  });
+
   const response = await fetch(
-    `${API_URL}/summary?owner=${encodeURIComponent(
-      owner
-    )}&repo=${encodeURIComponent(repo)}`,
+    `${API_URL}/summary/?${params}`,
     {
       credentials: "include",
     }
@@ -313,14 +353,21 @@ export async function getRepositorySummary(
   return response.json();
 }
 
+
+
 export async function explainCode(
   owner: string,
   repo: string,
   filePath: string,
-  code: string
+  code: string,
+  workspaceId: string
 ) {
+  const params = new URLSearchParams({
+    workspace_id: workspaceId,
+  });
+
   const response = await fetch(
-    `${API_URL}/explain/`,
+    `${API_URL}/explain/?${params}`,
     {
       method: "POST",
       credentials: "include",
@@ -343,21 +390,28 @@ export async function explainCode(
   return response.json();
 }
 
+
 export interface CodeActionResponse {
   original_code: string;
   modified_code: string;
   action: "fix" | "improve" | "refactor";
 }
 
+
 export async function generateCodeAction(
   owner: string,
   repo: string,
   filePath: string,
   code: string,
-  action: "fix" | "improve" | "refactor"
+  action: "fix" | "improve" | "refactor",
+  workspaceId: string
 ): Promise<CodeActionResponse> {
+  const params = new URLSearchParams({
+    workspace_id: workspaceId,
+  });
+
   const response = await fetch(
-    `${API_URL}/code-actions/`,
+    `${API_URL}/code-actions/?${params}`,
     {
       method: "POST",
       credentials: "include",
@@ -381,6 +435,7 @@ export async function generateCodeAction(
   return response.json();
 }
 
+
 export interface ApplyCodeResponse {
   message: string;
   owner: string;
@@ -393,15 +448,21 @@ export interface ApplyCodeResponse {
   commit_url: string;
 }
 
+
 export async function applyCodeToGitHub(
   owner: string,
   repo: string,
   filePath: string,
   code: string,
-  action: "fix" | "improve" | "refactor"
+  action: "fix" | "improve" | "refactor",
+  workspaceId: string
 ): Promise<ApplyCodeResponse> {
+  const params = new URLSearchParams({
+    workspace_id: workspaceId,
+  });
+
   const response = await fetch(
-    `${API_URL}/apply-code/`,
+    `${API_URL}/apply-code/?${params}`,
     {
       method: "POST",
       credentials: "include",
@@ -437,6 +498,7 @@ export async function applyCodeToGitHub(
   return response.json();
 }
 
+
 export interface PullRequestResponse {
   message: string;
   owner: string;
@@ -449,16 +511,22 @@ export interface PullRequestResponse {
   base: string;
 }
 
+
 export async function createPullRequest(
   owner: string,
   repo: string,
   title: string,
   body: string,
   head: string,
-  base: string
+  base: string,
+  workspaceId: string
 ): Promise<PullRequestResponse> {
+  const params = new URLSearchParams({
+    workspace_id: workspaceId,
+  });
+
   const response = await fetch(
-    `${API_URL}/pull-request/`,
+    `${API_URL}/pull-request/?${params}`,
     {
       method: "POST",
       credentials: "include",
@@ -495,6 +563,7 @@ export async function createPullRequest(
   return response.json();
 }
 
+
 export interface ReviewFinding {
   severity: "high" | "medium" | "low";
   title: string;
@@ -509,14 +578,20 @@ export interface RepositoryReviewResponse {
   findings: ReviewFinding[];
 }
 
+
 export async function reviewRepository(
   owner: string,
-  repo: string
+  repo: string,
+  workspaceId: string
 ): Promise<RepositoryReviewResponse> {
+  const params = new URLSearchParams({
+    owner,
+    repo,
+    workspace_id: workspaceId,
+  });
+
   const response = await fetch(
-    `${API_URL}/repository-review/?owner=${encodeURIComponent(
-      owner
-    )}&repo=${encodeURIComponent(repo)}`,
+    `${API_URL}/repository-review/?${params}`,
     {
       method: "POST",
       credentials: "include",
@@ -541,6 +616,7 @@ export async function reviewRepository(
 
   return response.json();
 }
+
 
 /**
  * Repository Architecture Analysis
@@ -572,14 +648,20 @@ export interface ArchitectureAnalysisResponse {
   unavailable_files: string[];
 }
 
+
 export async function analyzeRepositoryArchitecture(
   owner: string,
-  repo: string
+  repo: string,
+  workspaceId: string
 ): Promise<ArchitectureAnalysisResponse> {
+  const params = new URLSearchParams({
+    owner,
+    repo,
+    workspace_id: workspaceId,
+  });
+
   const response = await fetch(
-    `${API_URL}/architecture-analysis/?owner=${encodeURIComponent(
-      owner
-    )}&repo=${encodeURIComponent(repo)}`,
+    `${API_URL}/architecture-analysis/?${params}`,
     {
       method: "POST",
       credentials: "include",
@@ -604,6 +686,7 @@ export async function analyzeRepositoryArchitecture(
 
   return response.json();
 }
+
 
 /**
  * Dependency Analysis
@@ -634,14 +717,20 @@ export interface DependencyAnalysisResponse {
   summary: DependencyAnalysisSummary;
 }
 
+
 export async function analyzeRepositoryDependencies(
   owner: string,
-  repo: string
+  repo: string,
+  workspaceId: string
 ): Promise<DependencyAnalysisResponse> {
+  const params = new URLSearchParams({
+    owner,
+    repo,
+    workspace_id: workspaceId,
+  });
+
   const response = await fetch(
-    `${API_URL}/dependency-analysis/?owner=${encodeURIComponent(
-      owner
-    )}&repo=${encodeURIComponent(repo)}`,
+    `${API_URL}/dependency-analysis/?${params}`,
     {
       method: "POST",
       credentials: "include",
@@ -667,6 +756,7 @@ export async function analyzeRepositoryDependencies(
   return response.json();
 }
 
+
 export interface Activity {
   id: string;
   user_id: number;
@@ -680,11 +770,18 @@ export interface Activity {
   completed_at: number | null;
 }
 
+
 export async function getRecentActivities(
+  workspaceId: string,
   limit = 20
 ): Promise<Activity[]> {
+  const params = new URLSearchParams({
+    workspace_id: workspaceId,
+    limit: String(limit),
+  });
+
   const response = await fetch(
-    `${API_URL}/activities/?limit=${limit}`,
+    `${API_URL}/activities/?${params}`,
     {
       credentials: "include",
     }
@@ -700,14 +797,18 @@ export async function getRecentActivities(
   return data.activities;
 }
 
+
+
 export async function getRepositoryActivities(
   owner: string,
   repo: string,
+  workspaceId: string,
   limit = 50
 ): Promise<Activity[]> {
   const params = new URLSearchParams({
     owner,
     repo,
+    workspace_id: workspaceId,
     limit: String(limit),
   });
 
@@ -728,11 +829,18 @@ export async function getRepositoryActivities(
   return data.activities;
 }
 
+
+
 export async function getActivity(
-  activityId: string
+  activityId: string,
+  workspaceId: string
 ): Promise<Activity> {
+  const params = new URLSearchParams({
+    workspace_id: workspaceId,
+  });
+
   const response = await fetch(
-    `${API_URL}/activities/${encodeURIComponent(activityId)}`,
+    `${API_URL}/activities/${encodeURIComponent(activityId)}?${params}`,
     {
       credentials: "include",
     }
@@ -745,4 +853,303 @@ export async function getActivity(
   const data: { activity: Activity } = await response.json();
 
   return data.activity;
+}
+
+
+
+
+export type SavedResultType =
+  | "summary"
+  | "review"
+  | "architecture"
+  | "dependency"
+  | "security";
+
+export interface SavedResult {
+  id: string;
+  user_id: number;
+  workspace_id: string;
+  owner: string;
+  repo: string;
+  result_type: SavedResultType;
+  title: string;
+  content: Record<string, unknown>;
+  created_at: number;
+  updated_at: number;
+}
+
+export interface SaveResultPayload {
+  workspace_id: string;
+  owner: string;
+  repo: string;
+  result_type: SavedResultType;
+  title: string;
+  content: Record<string, unknown>;
+}
+
+export async function saveResult(
+  payload: SaveResultPayload
+): Promise<SavedResult> {
+  const response = await fetch(`${API_URL}/saved-results/`, {
+    method: "POST",
+    credentials: "include",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(payload),
+  });
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => null);
+    throw new Error(error?.detail || "Failed to save result.");
+  }
+
+  const data: { saved_result: SavedResult } = await response.json();
+  return data.saved_result;
+}
+
+export async function getSavedResults(
+  workspaceId: string,
+  owner?: string,
+  repo?: string,
+  resultType?: SavedResultType
+): Promise<SavedResult[]> {
+  const params = new URLSearchParams();
+
+  params.set("workspace_id", workspaceId);
+
+  if (owner && repo) {
+    params.set("owner", owner);
+    params.set("repo", repo);
+  }
+
+  if (resultType) {
+    params.set("result_type", resultType);
+  }
+
+  const response = await fetch(
+    `${API_URL}/saved-results/?${params.toString()}`,
+    { credentials: "include" }
+  );
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => null);
+    throw new Error(error?.detail || "Failed to fetch saved results.");
+  }
+
+  const data: {
+    saved_results: SavedResult[];
+    count: number;
+  } = await response.json();
+
+  return data.saved_results;
+}
+
+export async function getSavedResult(
+  resultId: string,
+  workspaceId: string
+): Promise<SavedResult> {
+  const params = new URLSearchParams({
+    workspace_id: workspaceId,
+  });
+
+  const response = await fetch(
+    `${API_URL}/saved-results/${encodeURIComponent(resultId)}?${params.toString()}`,
+    { credentials: "include" }
+  );
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => null);
+    throw new Error(error?.detail || "Failed to fetch saved result.");
+  }
+
+  const data: { saved_result: SavedResult } = await response.json();
+  return data.saved_result;
+}
+
+export async function deleteSavedResult(
+  resultId: string,
+  workspaceId: string
+): Promise<void> {
+  const params = new URLSearchParams({
+    workspace_id: workspaceId,
+  });
+
+  const response = await fetch(
+    `${API_URL}/saved-results/${encodeURIComponent(resultId)}?${params.toString()}`,
+    {
+      method: "DELETE",
+      credentials: "include",
+    }
+  );
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => null);
+    throw new Error(error?.detail || "Failed to delete saved result.");
+  }
+}
+
+export interface UserPreferences {
+  theme?: "dark" | "light" | "system";
+  default_analysis?: "review" | "summary" | "architecture";
+  response_detail?: "concise" | "balanced" | "detailed";
+  notifications?: boolean;
+  [key: string]: unknown;
+}
+
+export async function getUserPreferences(): Promise<UserPreferences> {
+  const response = await fetch(`${API_URL}/preferences/`, {
+    credentials: "include",
+  });
+
+  if (!response.ok) {
+    throw new Error("Failed to fetch user preferences.");
+  }
+
+  const data: { preferences: UserPreferences } = await response.json();
+  return data.preferences;
+}
+
+export async function updateUserPreferences(
+  preferences: object
+): Promise<UserPreferences> {
+  const response = await fetch(`${API_URL}/preferences/`, {
+    method: "PUT",
+    credentials: "include",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ preferences }),
+  });
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => null);
+    throw new Error(error?.detail || "Failed to update user preferences.");
+  }
+
+  const data: { preferences: UserPreferences } = await response.json();
+  return data.preferences;
+}
+
+export async function deleteUserPreferences(): Promise<void> {
+  const response = await fetch(`${API_URL}/preferences/`, {
+    method: "DELETE",
+    credentials: "include",
+  });
+
+  if (!response.ok) {
+    throw new Error("Failed to delete user preferences.");
+  }
+}
+
+export interface Workspace {
+  id: string;
+  user_id: number;
+  name: string;
+  created_at?: number;
+  updated_at?: number;
+}
+
+export interface WorkspaceState {
+  [key: string]: unknown;
+}
+
+export async function getWorkspaces(): Promise<Workspace[]> {
+  const response = await fetch(`${API_URL}/workspaces`, {
+    credentials: "include",
+  });
+
+  if (!response.ok) {
+    throw new Error("Failed to fetch workspaces.");
+  }
+
+  const data: { workspaces: Workspace[] } = await response.json();
+  return data.workspaces;
+}
+
+export async function createWorkspace(name: string): Promise<Workspace> {
+  const response = await fetch(`${API_URL}/workspaces`, {
+    method: "POST",
+    credentials: "include",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ name }),
+  });
+
+  if (!response.ok) {
+    throw new Error("Failed to create workspace.");
+  }
+
+  const data: { workspace: Workspace } = await response.json();
+  return data.workspace;
+}
+
+export async function deleteWorkspace(workspaceId: string): Promise<void> {
+  const response = await fetch(
+    `${API_URL}/workspaces/${encodeURIComponent(workspaceId)}`,
+    {
+      method: "DELETE",
+      credentials: "include",
+    }
+  );
+
+  if (!response.ok) {
+    throw new Error("Failed to delete workspace.");
+  }
+}
+
+export async function getWorkspaceState(
+  workspaceId: string
+): Promise<WorkspaceState> {
+  const response = await fetch(
+    `${API_URL}/workspaces/${encodeURIComponent(workspaceId)}/state`,
+    { credentials: "include" }
+  );
+
+  if (!response.ok) {
+    throw new Error("Failed to fetch workspace state.");
+  }
+
+  const data: { state: WorkspaceState } = await response.json();
+  return data.state;
+}
+
+export async function updateWorkspaceState(
+  workspaceId: string,
+  stateKey: string,
+  stateValue: Record<string, unknown>
+): Promise<void> {
+  const response = await fetch(
+    `${API_URL}/workspaces/${encodeURIComponent(workspaceId)}/state/${encodeURIComponent(stateKey)}`,
+    {
+      method: "PUT",
+      credentials: "include",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ state_value: stateValue }),
+    }
+  );
+
+  if (!response.ok) {
+    throw new Error("Failed to update workspace state.");
+  }
+}
+
+export async function deleteWorkspaceState(
+  workspaceId: string,
+  stateKey: string
+): Promise<void> {
+  const response = await fetch(
+    `${API_URL}/workspaces/${encodeURIComponent(workspaceId)}/state/${encodeURIComponent(stateKey)}`,
+    {
+      method: "DELETE",
+      credentials: "include",
+    }
+  );
+
+  if (!response.ok) {
+    throw new Error("Failed to delete workspace state.");
+  }
 }

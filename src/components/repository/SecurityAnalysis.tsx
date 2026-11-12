@@ -1,6 +1,8 @@
+
 import { useState } from "react";
 import {
   AlertTriangle,
+  Bookmark,
   Bug,
   CheckCircle2,
   ChevronDown,
@@ -9,6 +11,8 @@ import {
   ShieldAlert,
   ShieldCheck,
 } from "lucide-react";
+import { useWorkspace } from "../../context/useWorkspace";
+import { saveResult } from "../../services/api";
 
 interface SecurityFinding {
   id: string;
@@ -53,32 +57,27 @@ const severityStyles: Record<
   }
 > = {
   CRITICAL: {
-    badge:
-      "border-red-900/60 bg-red-950/30 text-red-400",
+    badge: "border-red-900/60 bg-red-950/30 text-red-400",
     icon: ShieldAlert,
     iconColor: "text-red-400",
   },
   HIGH: {
-    badge:
-      "border-orange-900/60 bg-orange-950/30 text-orange-400",
+    badge: "border-orange-900/60 bg-orange-950/30 text-orange-400",
     icon: ShieldAlert,
     iconColor: "text-orange-400",
   },
   MEDIUM: {
-    badge:
-      "border-yellow-900/60 bg-yellow-950/30 text-yellow-400",
+    badge: "border-yellow-900/60 bg-yellow-950/30 text-yellow-400",
     icon: AlertTriangle,
     iconColor: "text-yellow-400",
   },
   LOW: {
-    badge:
-      "border-blue-900/60 bg-blue-950/30 text-blue-400",
+    badge: "border-blue-900/60 bg-blue-950/30 text-blue-400",
     icon: Bug,
     iconColor: "text-blue-400",
   },
   UNKNOWN: {
-    badge:
-      "border-zinc-800 bg-zinc-950 text-zinc-500",
+    badge: "border-zinc-800 bg-zinc-950 text-zinc-500",
     icon: Bug,
     iconColor: "text-zinc-500",
   },
@@ -88,6 +87,8 @@ export default function SecurityAnalysis({
   owner,
   repo,
 }: SecurityAnalysisProps) {
+  const { workspace } = useWorkspace();
+
   const [result, setResult] =
     useState<SecurityAnalysisResult | null>(null);
 
@@ -95,18 +96,30 @@ export default function SecurityAnalysis({
   const [error, setError] = useState("");
   const [expandedFinding, setExpandedFinding] =
     useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [saveMessage, setSaveMessage] = useState("");
 
   const runAnalysis = async () => {
+    if (!workspace?.id) {
+      setError("Select a workspace before running security analysis.");
+      return;
+    }
+
     setLoading(true);
     setError("");
 
     try {
+      const params = new URLSearchParams({
+        owner,
+        repo,
+        workspace_id: workspace.id,
+      });
+
       const response = await fetch(
-        `http://127.0.0.1:8000/security-analysis/?owner=${encodeURIComponent(
-          owner
-        )}&repo=${encodeURIComponent(repo)}`,
+        `http://127.0.0.1:8000/security-analysis/?${params.toString()}`,
         {
           method: "POST",
+          credentials: "include",
         }
       );
 
@@ -116,8 +129,7 @@ export default function SecurityAnalysis({
         );
       }
 
-      const data: SecurityAnalysisResult =
-        await response.json();
+      const data: SecurityAnalysisResult = await response.json();
 
       setResult(data);
     } catch (err) {
@@ -128,6 +140,39 @@ export default function SecurityAnalysis({
       );
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleSaveAnalysis = async () => {
+    if (!result || saving) return;
+
+    if (!workspace?.id) {
+      setSaveMessage("Select a workspace before saving this analysis.");
+      return;
+    }
+
+    try {
+      setSaving(true);
+      setSaveMessage("");
+
+      await saveResult({
+        workspace_id: workspace.id,
+        owner,
+        repo,
+        result_type: "security",
+        title: `Security Analysis - ${owner}/${repo}`,
+        content: { ...result },
+      });
+
+      setSaveMessage("Security analysis saved successfully.");
+    } catch (err) {
+      setSaveMessage(
+        err instanceof Error
+          ? err.message
+          : "Failed to save security analysis."
+      );
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -164,21 +209,40 @@ export default function SecurityAnalysis({
           </div>
         </div>
 
-        <button
-          type="button"
-          onClick={runAnalysis}
-          disabled={loading}
-          className="inline-flex w-full shrink-0 items-center justify-center gap-2 rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-2 text-xs font-medium text-zinc-400 transition-colors hover:border-zinc-700 hover:text-zinc-200 disabled:cursor-not-allowed disabled:opacity-50 md:w-auto"
-        >
-          <RefreshCw
-            className={`h-3.5 w-3.5 ${
-              loading ? "animate-spin" : ""
-            }`}
-          />
+        <div className="flex w-full flex-col gap-2 md:w-auto md:flex-row">
+          {result && (
+            <button
+              type="button"
+              onClick={handleSaveAnalysis}
+              disabled={saving || !workspace?.id}
+              title={!workspace?.id ? "Select a workspace first" : "Save analysis"}
+              className="inline-flex w-full items-center justify-center gap-2 rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-2 text-xs font-medium text-zinc-400 transition-colors hover:border-zinc-700 hover:text-zinc-200 disabled:cursor-not-allowed disabled:opacity-50 md:w-auto"
+            >
+              <Bookmark className="h-3.5 w-3.5" />
+              {saving ? "Saving..." : "Save Analysis"}
+            </button>
+          )}
 
-          {loading ? "Scanning..." : "Run Security Scan"}
-        </button>
+          <button
+            type="button"
+            onClick={runAnalysis}
+            disabled={loading || !workspace?.id}
+            title={!workspace?.id ? "Select a workspace first" : "Run security scan"}
+            className="inline-flex w-full shrink-0 items-center justify-center gap-2 rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-2 text-xs font-medium text-zinc-400 transition-colors hover:border-zinc-700 hover:text-zinc-200 disabled:cursor-not-allowed disabled:opacity-50 md:w-auto"
+          >
+            <RefreshCw
+              className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`}
+            />
+            {loading ? "Scanning..." : "Run Security Scan"}
+          </button>
+        </div>
       </div>
+
+      {saveMessage && (
+        <p className="px-5 pt-3 text-xs text-blue-400">
+          {saveMessage}
+        </p>
+      )}
 
       {/* Error */}
       {error && (
@@ -205,9 +269,7 @@ export default function SecurityAnalysis({
           {/* Statistics */}
           <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
             <div className="rounded-xl border border-zinc-800/80 bg-zinc-950/50 p-4">
-              <p className="text-xs text-zinc-600">
-                Scanned
-              </p>
+              <p className="text-xs text-zinc-600">Scanned</p>
 
               <p className="mt-2 text-2xl font-semibold tracking-tight text-white">
                 {result.scanned_dependencies}
@@ -238,8 +300,7 @@ export default function SecurityAnalysis({
               </p>
 
               <p className="mt-2 text-2xl font-semibold tracking-tight text-white">
-                {result.summary.high +
-                  result.summary.critical}
+                {result.summary.high + result.summary.critical}
               </p>
 
               <p className="mt-1 text-[10px] text-zinc-700">
@@ -248,9 +309,7 @@ export default function SecurityAnalysis({
             </div>
 
             <div className="rounded-xl border border-zinc-800/80 bg-zinc-950/50 p-4">
-              <p className="text-xs text-zinc-600">
-                Skipped
-              </p>
+              <p className="text-xs text-zinc-600">Skipped</p>
 
               <p className="mt-2 text-2xl font-semibold tracking-tight text-white">
                 {result.skipped_dependencies}
@@ -295,31 +354,22 @@ export default function SecurityAnalysis({
                   </h3>
 
                   <p className="mt-1 text-xs leading-5 text-zinc-600">
-                    Review detected security issues and
-                    available fixes.
+                    Review detected security issues and available fixes.
                   </p>
                 </div>
 
                 <span className="w-fit shrink-0 rounded-md border border-zinc-800 bg-zinc-950 px-2 py-1 text-[10px] font-medium text-zinc-500">
                   {result.findings.length}{" "}
-                  {result.findings.length === 1
-                    ? "finding"
-                    : "findings"}
+                  {result.findings.length === 1 ? "finding" : "findings"}
                 </span>
               </div>
 
               <div className="space-y-2">
                 {result.findings.map((finding) => {
-                  const severity =
-                    finding.severity.toUpperCase();
-
-                  const style =
-                    getSeverityStyle(severity);
-
+                  const severity = finding.severity.toUpperCase();
+                  const style = getSeverityStyle(severity);
                   const SeverityIcon = style.icon;
-
-                  const isExpanded =
-                    expandedFinding === finding.id;
+                  const isExpanded = expandedFinding === finding.id;
 
                   return (
                     <div
@@ -328,9 +378,7 @@ export default function SecurityAnalysis({
                     >
                       <button
                         type="button"
-                        onClick={() =>
-                          toggleFinding(finding.id)
-                        }
+                        onClick={() => toggleFinding(finding.id)}
                         className="flex min-w-0 w-full items-start gap-3 p-4 text-left transition-colors hover:bg-zinc-900/70"
                       >
                         <div
@@ -352,13 +400,9 @@ export default function SecurityAnalysis({
 
                             <span
                               className="max-w-full truncate font-mono text-xs text-zinc-600"
-                              title={
-                                finding.resolved_version ||
-                                finding.version
-                              }
+                              title={finding.resolved_version || finding.version}
                             >
-                              {finding.resolved_version ||
-                                finding.version}
+                              {finding.resolved_version || finding.version}
                             </span>
 
                             <span
@@ -403,13 +447,9 @@ export default function SecurityAnalysis({
 
                                 <p
                                   className="mt-1 truncate font-mono text-sm text-zinc-300"
-                                  title={
-                                    finding.ecosystem ||
-                                    "Unknown"
-                                  }
+                                  title={finding.ecosystem || "Unknown"}
                                 >
-                                  {finding.ecosystem ||
-                                    "Unknown"}
+                                  {finding.ecosystem || "Unknown"}
                                 </p>
                               </div>
 
@@ -456,16 +496,14 @@ export default function SecurityAnalysis({
                                   </p>
 
                                   <div className="flex flex-wrap gap-1.5">
-                                    {finding.aliases.map(
-                                      (alias) => (
-                                        <span
-                                          key={alias}
-                                          className="max-w-full break-all rounded-md border border-zinc-800 bg-zinc-950 px-2 py-1 font-mono text-[10px] text-zinc-500"
-                                        >
-                                          {alias}
-                                        </span>
-                                      )
-                                    )}
+                                    {finding.aliases.map((alias) => (
+                                      <span
+                                        key={alias}
+                                        className="max-w-full break-all rounded-md border border-zinc-800 bg-zinc-950 px-2 py-1 font-mono text-[10px] text-zinc-500"
+                                      >
+                                        {alias}
+                                      </span>
+                                    ))}
                                   </div>
                                 </div>
                               )}
